@@ -1,0 +1,1 @@
+CREATE TABLE paintrobot.jobs (event_id TEXT PRIMARY KEY, edge_id TEXT, plc_model_no TEXT, camera_model_no TEXT, plc_ts BIGINT, camera_ts BIGINT, confidence DOUBLE, match_status TEXT, work_date TEXT, image_ref TEXT, created_at BIGINT)

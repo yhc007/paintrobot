@@ -1,0 +1,1 @@
+CREATE TABLE paintrobot.coatings (event_id TEXT PRIMARY KEY, job_event_id TEXT, model_no TEXT, measured_um DOUBLE, target_um DOUBLE, temperature_c DOUBLE, humidity_pct DOUBLE, current_pressure DOUBLE, recommended_pressure DOUBLE, thickness_error DOUBLE, control_factor DOUBLE, temp_factor DOUBLE, humidity_factor DOUBLE, measured_at BIGINT, work_date TEXT)

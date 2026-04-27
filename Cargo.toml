@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/schema",
+    "crates/domain",
+    "crates/repo-coredb",
+    "crates/weather-client",
+    "crates/api-gateway",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
+url = "2"
+
+# WASI Preview 2 — used by api-gateway and repo-coredb/weather-client
+# for outbound HTTP and serving HTTP via wasi:http/proxy.
+wstd = "0.6"
+http-body-util = "0.1"
+
+# Internal crates
+paintrobot-schema        = { path = "crates/schema" }
+paintrobot-domain        = { path = "crates/domain" }
+paintrobot-repo-coredb   = { path = "crates/repo-coredb" }
+paintrobot-weather-client = { path = "crates/weather-client" }
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,16 @@
+/target/
+/web/node_modules/
+/web/dist/
+/web/**/*.tsbuildinfo
+/web/src/**/*.js
+/web/src/**/*.d.ts
+/bin/
+/logs/
+.env
+.env.local
+*.log
+
+# editor
+.idea/
+.vscode/
+*.swp

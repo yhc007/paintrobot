@@ -1,0 +1,12 @@
+tunnel: 1b548272-6a44-4e38-b76f-71fa0db07c1c
+credentials-file: /home/root1/.cloudflared/1b548272-6a44-4e38-b76f-71fa0db07c1c.json
+
+ingress:
+  # API + healthz → wasmtime WASM server
+  - hostname: paint.coreon.build
+    path: ^/(api|healthz)(/.*)?$
+    service: http://127.0.0.1:18080
+  # Everything else (SPA) → static server
+  - hostname: paint.coreon.build
+    service: http://127.0.0.1:5174
+  - service: http_status:404

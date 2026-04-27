@@ -1,0 +1,28 @@
+[package]
+name = "paintrobot-repo-coredb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+paintrobot-schema = { workspace = true }
+paintrobot-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+async-trait = "0.1"
+
+# Native HTTP transport (tests, dev runs).
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+# WASI (wasm32-wasip2) transport using wstd's http client.
+[target.'cfg(target_family = "wasm")'.dependencies]
+wstd = { workspace = true }
+http-body-util = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+uuid = { workspace = true }

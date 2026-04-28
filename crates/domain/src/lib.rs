@@ -75,11 +75,18 @@ pub fn work_date(ts: DateTime<FixedOffset>, tz: FixedOffset) -> String {
 }
 
 /// Aggregate rows read from CoreDB into a DailyStats bundle.
+///
+/// `plc_only` rows are intentionally excluded: those events are PLC state
+/// updates and the dashboard's job counts should only reflect work that
+/// the camera has actually verified (matched, mismatch, or camera_only).
 pub fn aggregate(work_date: String, jobs: impl IntoIterator<Item = AggRow>) -> DailyStats {
     let mut per_model: BTreeMap<String, (u64, u64)> = BTreeMap::new();
     let mut total = 0u64;
     let mut mismatch = 0u64;
     for row in jobs {
+        if row.match_status == "plc_only" {
+            continue;
+        }
         total += 1;
         let is_mismatch = row.match_status == "mismatch";
         if is_mismatch {
@@ -194,5 +201,24 @@ mod tests {
         assert_eq!(stats.total_jobs, 3);
         assert_eq!(stats.mismatch_jobs, 1);
         assert_eq!(stats.models.len(), 2);
+    }
+
+    #[test]
+    fn aggregate_excludes_plc_only_rows() {
+        let rows = vec![
+            AggRow { model_no: "A".into(), match_status: "plc_only".into() },
+            AggRow { model_no: "A".into(), match_status: "plc_only".into() },
+            AggRow { model_no: "A".into(), match_status: "camera_only".into() },
+            AggRow { model_no: "B".into(), match_status: "matched".into() },
+            AggRow { model_no: "C".into(), match_status: "mismatch".into() },
+        ];
+        let stats = aggregate("2026-04-28".into(), rows);
+        // 2 PLC-only rows excluded; 3 camera-confirmed rows counted
+        assert_eq!(stats.total_jobs, 3);
+        assert_eq!(stats.mismatch_jobs, 1);
+        // Model A only counts the camera_only row, PLC-only rows skipped
+        let a = stats.models.iter().find(|m| m.model_no == "A").unwrap();
+        assert_eq!(a.job_count, 1);
+        assert_eq!(a.mismatch_count, 0);
     }
 }

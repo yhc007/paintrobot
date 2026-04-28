@@ -15,8 +15,8 @@ use paintrobot_repo_coredb::{
     CoatingRow, CoreDbClient, JobRow, RepoError, WasiTransport, WeatherRow,
 };
 use paintrobot_schema::{
-    CoatingIn, CoatingOut, DailyStats, IngestResponse, JobIn, PressureFactors, Rejected,
-    WeatherCurrent,
+    CoatingIn, CoatingOut, DailyStats, IngestResponse, JobIn, PlcCurrent, PlcModelIn,
+    PressureFactors, Rejected, WeatherCurrent,
 };
 use paintrobot_weather_client::{OwmProvider, WeatherError, WeatherProvider};
 use wstd::http::{Body, Request, Response, StatusCode};
@@ -32,6 +32,8 @@ async fn main(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
     let query = req.uri().query().unwrap_or("").to_owned();
     match (method.as_str(), path.as_str()) {
         ("POST", "/api/v1/jobs") => Ok(ingest_job(req).await),
+        ("POST", "/api/v1/plc/model") => Ok(ingest_plc_model(req).await),
+        ("GET", "/api/v1/plc/current") => Ok(plc_current().await),
         ("POST", "/api/v1/coatings") => Ok(ingest_coating(req).await),
         ("GET", "/api/v1/coatings/today") => Ok(coatings_today().await),
         ("GET", "/api/v1/coatings/recent") => Ok(coatings_recent(&query).await),
@@ -157,6 +159,129 @@ async fn ingest_job(req: Request<Body>) -> Response<Body> {
         ),
         Err(e) => repo_error_response(&e),
     }
+}
+
+// ── plc state ──────────────────────────────────────────────────────────────
+
+async fn ingest_plc_model(req: Request<Body>) -> Response<Body> {
+    if !check_edge_key(req.headers()) {
+        return json_error(StatusCode::UNAUTHORIZED, "missing or invalid X-Edge-Key");
+    }
+    let body = match read_body(req).await {
+        Ok(b) => b,
+        Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
+    };
+    let inp: PlcModelIn = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return json_error(StatusCode::BAD_REQUEST, &format!("invalid body: {e}")),
+    };
+
+    let plc_ts = inp.plc_ts.unwrap_or_else(|| Utc::now().fixed_offset());
+    // Deterministic event_id from (edge, model, ts) so the same state update
+    // re-sent within the same millisecond is idempotent.
+    let event_id = format!(
+        "plc-{}-{}-{}",
+        sanitize_id(&inp.edge_id),
+        sanitize_id(&inp.model_no),
+        plc_ts.timestamp_millis()
+    );
+    let job = JobIn {
+        event_id: event_id.clone(),
+        edge_id: inp.edge_id.clone(),
+        plc_model_no: Some(inp.model_no.clone()),
+        camera_model_no: None,
+        plc_ts: Some(plc_ts),
+        camera_ts: None,
+        confidence: None,
+        image_ref: None,
+    };
+
+    let status = domain::classify(&job);
+    let work_date = domain::work_date(plc_ts, config::kst());
+    let created_at = Utc::now().timestamp_millis();
+
+    let c = client();
+    match c.get_job(&event_id).await {
+        Ok(Some(_)) => {
+            return json_response(
+                StatusCode::OK,
+                &serde_json::json!({
+                    "accepted": 0,
+                    "duplicates": 1,
+                    "current_model": inp.model_no,
+                    "event_id": event_id,
+                }),
+            );
+        }
+        Ok(None) => {}
+        Err(e) => return repo_error_response(&e),
+    }
+
+    match c.insert_job(&job, &work_date, status, created_at).await {
+        Ok(()) => json_response(
+            StatusCode::OK,
+            &serde_json::json!({
+                "accepted": 1,
+                "duplicates": 0,
+                "current_model": inp.model_no,
+                "event_id": event_id,
+            }),
+        ),
+        Err(e) => repo_error_response(&e),
+    }
+}
+
+/// Pick the most recent PLC-side event from today's jobs.
+async fn plc_current() -> Response<Body> {
+    let cur = match latest_plc_state().await {
+        Ok(c) => c,
+        Err(e) => return repo_error_response(&e),
+    };
+    json_response(StatusCode::OK, &cur)
+}
+
+async fn latest_plc_state() -> Result<PlcCurrent, RepoError> {
+    let today = Utc::now()
+        .with_timezone(&config::kst())
+        .format("%Y-%m-%d")
+        .to_string();
+    let rows = client().scan_jobs_for_date(&today, 100_000).await?;
+    Ok(latest_plc_state_from_rows(&rows))
+}
+
+fn latest_plc_state_from_rows(rows: &[paintrobot_repo_coredb::JobRow]) -> PlcCurrent {
+    let latest = rows
+        .iter()
+        .filter(|r| r.plc_model_no.as_deref().filter(|s| !s.is_empty()).is_some())
+        .max_by_key(|r| r.plc_ts.unwrap_or(r.created_at));
+    match latest {
+        Some(r) => PlcCurrent {
+            model_no: r.plc_model_no.clone(),
+            edge_id: Some(r.edge_id.clone()),
+            plc_ts: r.plc_ts,
+            event_id: Some(r.event_id.clone()),
+        },
+        None => PlcCurrent {
+            model_no: None,
+            edge_id: None,
+            plc_ts: None,
+            event_id: None,
+        },
+    }
+}
+
+/// Replace whitespace and invalid chars with `_` so check_identifier passes.
+fn sanitize_id(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == ':' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(64)
+        .collect()
 }
 
 // ── coatings ───────────────────────────────────────────────────────────────
@@ -713,10 +838,27 @@ fn stream_live() -> Response<Body> {
             .with_timezone(&config::kst())
             .format("%Y-%m-%d")
             .to_string();
-        let payload = match client().agg_rows_for_date(&today, 100_000).await {
+        let payload = match client().scan_jobs_for_date(&today, 100_000).await {
             Ok(rows) => {
-                let stats = domain::aggregate(today, rows);
-                serde_json::to_string(&stats).unwrap_or_else(|_| "{}".to_string())
+                let plc = latest_plc_state_from_rows(&rows);
+                let agg_rows: Vec<paintrobot_domain::AggRow> = rows
+                    .iter()
+                    .map(|r| paintrobot_domain::AggRow {
+                        model_no: r
+                            .plc_model_no
+                            .clone()
+                            .filter(|s| !s.is_empty())
+                            .or_else(|| r.camera_model_no.clone().filter(|s| !s.is_empty()))
+                            .unwrap_or_else(|| "(unknown)".to_string()),
+                        match_status: r.match_status.clone(),
+                    })
+                    .collect();
+                let stats = domain::aggregate(today, agg_rows);
+                serde_json::to_string(&serde_json::json!({
+                    "stats": stats,
+                    "current_plc": plc,
+                }))
+                .unwrap_or_else(|_| "{}".to_string())
             }
             Err(_) => "{}".to_string(),
         };

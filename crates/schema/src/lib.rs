@@ -71,6 +71,25 @@ pub struct DailyStats {
     pub models: Vec<ModelCount>,
 }
 
+/// PLC-only state update. The PLC reports the model it is currently working on.
+/// The server records it as a `plc_only` job entry — emit one per state change
+/// (do not poll into a duplicate stream).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlcModelIn {
+    pub edge_id: String,
+    pub model_no: String,
+    /// PLC reading timestamp. If omitted the server uses receive time.
+    pub plc_ts: Option<DateTime<FixedOffset>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlcCurrent {
+    pub model_no: Option<String>,
+    pub edge_id: Option<String>,
+    pub plc_ts: Option<i64>,
+    pub event_id: Option<String>,
+}
+
 /// Edge-supplied coating-thickness measurement. The server computes the
 /// recommended spray pressure from this plus current temperature/humidity.
 #[derive(Debug, Clone, Serialize, Deserialize)]

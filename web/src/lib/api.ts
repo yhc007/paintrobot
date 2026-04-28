@@ -30,6 +30,18 @@ async function getJson<T>(path: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+export type PlcCurrent = {
+  model_no: string | null;
+  edge_id: string | null;
+  plc_ts: number | null;
+  event_id: string | null;
+};
+
+export type LiveFrame = {
+  stats: DailyStats;
+  current_plc: PlcCurrent;
+};
+
 export type CoatingSample = {
   event_id: string;
   model_no: string;
@@ -56,6 +68,7 @@ export const api = {
   range: (from: string, to: string) =>
     getJson<DailyStats[]>(`/api/v1/stats/range?from=${from}&to=${to}&group_by=day`),
   weather: () => getJson<WeatherCurrent>('/api/v1/weather/current'),
+  plcCurrent: () => getJson<PlcCurrent>('/api/v1/plc/current'),
   coatingsToday: () => getJson<CoatingsToday>('/api/v1/coatings/today'),
   coatingsRecent: (limit = 100) =>
     getJson<CoatingsToday>(`/api/v1/coatings/recent?limit=${limit}`),

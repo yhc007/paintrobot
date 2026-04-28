@@ -147,6 +147,62 @@ main { flex: 1; padding: 24px; max-width: 1400px; width: 100%; margin: 0 auto; }
 h1 { margin-top: 0; font-size: 1.4rem; color: var(--text-primary); }
 h2 { font-size: 0.95rem; color: var(--text-secondary); margin-top: 28px; }
 
+/* current PLC banner */
+.plc-card {
+  background: linear-gradient(135deg, #1b1b1b 0%, #2d3748 100%);
+  color: var(--text-white);
+  border-radius: 12px;
+  padding: 20px 28px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+.plc-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--siemens-teal), var(--accent-orange));
+}
+.plc-card.plc-empty { opacity: 0.7; }
+.plc-label {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.6);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.plc-model {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+  color: var(--accent-orange);
+}
+.plc-empty .plc-model { color: rgba(255,255,255,0.4); font-size: 1.5rem; }
+.plc-meta {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.6);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+.plc-meta .dot { color: rgba(255,255,255,0.3); }
+.plc-fresh {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(0,166,81,0.2);
+  color: #5fcf91;
+  border: 1px solid rgba(0,166,81,0.5);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.plc-fresh.stale { background: rgba(245,166,35,0.2); color: #fcc56b; border-color: rgba(245,166,35,0.5); }
+
 .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 8px; }
 .kpi {
   background: var(--bg-primary);

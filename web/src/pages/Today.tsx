@@ -1,38 +1,57 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { api, DailyStats } from '../lib/api';
+import { api, DailyStats, LiveFrame, PlcCurrent } from '../lib/api';
 import KpiCard from '../components/KpiCard';
+import PlcCard from '../components/PlcCard';
 
 export default function Today() {
   const qc = useQueryClient();
-  const q = useQuery({
+  const stats = useQuery({
     queryKey: ['stats', 'today'],
     queryFn: api.today,
-    // SSE feeds near-realtime updates. Polling is a safety net for reconnects.
+    refetchInterval: 30_000,
+  });
+  const plc = useQuery({
+    queryKey: ['plc', 'current'],
+    queryFn: api.plcCurrent,
     refetchInterval: 30_000,
   });
 
+  // SSE pushes both stats and current_plc together — wired to the same caches.
+  const [, force] = useState(0);
   useEffect(() => {
     const es = new EventSource('/api/v1/stream/live');
     es.addEventListener('stats', ev => {
       try {
-        const data = JSON.parse((ev as MessageEvent).data) as DailyStats;
-        qc.setQueryData(['stats', 'today'], data);
-      } catch {
-        // ignore malformed frames
-      }
+        const data = JSON.parse((ev as MessageEvent).data) as Partial<LiveFrame> | DailyStats;
+        if ('stats' in data && data.stats) {
+          qc.setQueryData(['stats', 'today'], data.stats as DailyStats);
+          if ('current_plc' in data) {
+            qc.setQueryData(['plc', 'current'], (data as LiveFrame).current_plc);
+          }
+        } else {
+          // back-compat: old payload was just DailyStats
+          qc.setQueryData(['stats', 'today'], data as DailyStats);
+        }
+      } catch { /* ignore malformed frames */ }
     });
-    return () => es.close();
+    // refresh "초 전" relative time every 5s
+    const tick = setInterval(() => force(n => n + 1), 5_000);
+    return () => { es.close(); clearInterval(tick); };
   }, [qc]);
 
-  if (q.isLoading) return <p>로딩중…</p>;
-  if (q.error || !q.data) return <p className="err">데이터를 가져오지 못했습니다.</p>;
-  const s = q.data;
+  if (stats.isLoading) return <p>로딩중…</p>;
+  if (stats.error || !stats.data) return <p className="err">데이터를 가져오지 못했습니다.</p>;
+  const s = stats.data;
+  const cur: PlcCurrent | null | undefined = plc.data;
 
   return (
     <section>
       <h1>오늘 ({s.work_date})</h1>
+
+      <PlcCard plc={cur} />
+
       <div className="kpi-row">
         <KpiCard label="총 작업" value={s.total_jobs} />
         <KpiCard label="모델 종류" value={s.models.length} />

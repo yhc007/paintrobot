@@ -183,6 +183,10 @@ h2 { font-size: 0.95rem; color: var(--text-secondary); margin-top: 28px; }
   color: var(--accent-orange);
 }
 .plc-empty .plc-model { color: rgba(255,255,255,0.4); font-size: 1.5rem; }
+.plc-sep { color: rgba(255,255,255,0.45); font-weight: 400; margin: 0 6px; }
+.plc-camera { color: var(--siemens-teal); }
+.plc-fresh.cam { background: rgba(0,153,153,0.18); color: #5dd7d7; border-color: rgba(0,153,153,0.5); }
+.plc-fresh.cam.stale { background: rgba(245,166,35,0.2); color: #fcc56b; border-color: rgba(245,166,35,0.5); }
 .plc-meta {
   margin-top: 10px;
   font-size: 0.85rem;

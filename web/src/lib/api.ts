@@ -35,6 +35,8 @@ export type PlcCurrent = {
   edge_id: string | null;
   plc_ts: number | null;
   event_id: string | null;
+  camera_model_no: string | null;
+  camera_ts: number | null;
 };
 
 export type LiveFrame = {

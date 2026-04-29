@@ -250,23 +250,29 @@ async fn latest_plc_state() -> Result<PlcCurrent, RepoError> {
 }
 
 fn latest_plc_state_from_rows(rows: &[paintrobot_repo_coredb::JobRow]) -> PlcCurrent {
-    let latest = rows
+    // Latest PLC reading (any row with a non-empty plc_model_no).
+    let latest_plc = rows
         .iter()
         .filter(|r| r.plc_model_no.as_deref().filter(|s| !s.is_empty()).is_some())
         .max_by_key(|r| r.plc_ts.unwrap_or(r.created_at));
-    match latest {
-        Some(r) => PlcCurrent {
-            model_no: r.plc_model_no.clone(),
-            edge_id: Some(r.edge_id.clone()),
-            plc_ts: r.plc_ts,
-            event_id: Some(r.event_id.clone()),
-        },
-        None => PlcCurrent {
-            model_no: None,
-            edge_id: None,
-            plc_ts: None,
-            event_id: None,
-        },
+    // Latest camera reading (any row with a non-empty camera_model_no).
+    let latest_cam = rows
+        .iter()
+        .filter(|r| {
+            r.camera_model_no
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .is_some()
+        })
+        .max_by_key(|r| r.camera_ts.unwrap_or(r.created_at));
+
+    PlcCurrent {
+        model_no: latest_plc.and_then(|r| r.plc_model_no.clone()),
+        edge_id: latest_plc.map(|r| r.edge_id.clone()),
+        plc_ts: latest_plc.and_then(|r| r.plc_ts),
+        event_id: latest_plc.map(|r| r.event_id.clone()),
+        camera_model_no: latest_cam.and_then(|r| r.camera_model_no.clone()),
+        camera_ts: latest_cam.and_then(|r| r.camera_ts),
     }
 }
 

@@ -88,6 +88,9 @@ pub struct PlcCurrent {
     pub edge_id: Option<String>,
     pub plc_ts: Option<i64>,
     pub event_id: Option<String>,
+    /// Most recent camera-side recognition (independent of the PLC event).
+    pub camera_model_no: Option<String>,
+    pub camera_ts: Option<i64>,
 }
 
 /// Edge-supplied coating-thickness measurement. The server computes the

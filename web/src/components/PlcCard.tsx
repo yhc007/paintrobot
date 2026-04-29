@@ -20,26 +20,52 @@ function freshness(ms: number | null): { label: string; stale: boolean } {
 }
 
 export default function PlcCard({ plc }: { plc: PlcCurrent | null | undefined }) {
-  const has = !!plc?.model_no;
+  const hasPlc = !!plc?.model_no;
+  const hasCam = !!plc?.camera_model_no;
   const fresh = freshness(plc?.plc_ts ?? null);
+  const camFresh = freshness(plc?.camera_ts ?? null);
   return (
-    <div className={`plc-card ${has ? '' : 'plc-empty'}`}>
-      <div className="plc-label">현재 PLC 모델</div>
-      <div className="plc-model">{has ? plc!.model_no : '— 대기중 —'}</div>
+    <div className={`plc-card ${hasPlc ? '' : 'plc-empty'}`}>
+      <div className="plc-label">현재 PLC 모델 · 카메라 인식</div>
+      <div className="plc-model">
+        {hasPlc ? plc!.model_no : '— 대기중 —'}
+        {hasCam && (
+          <>
+            <span className="plc-sep"> - </span>
+            <span className="plc-camera">{plc!.camera_model_no}</span>
+          </>
+        )}
+      </div>
       <div className="plc-meta">
-        <span className={`plc-fresh ${fresh.stale ? 'stale' : ''}`}>
-          {has ? fresh.label : '신호 없음'}
-        </span>
-        {has && plc?.edge_id && (
+        {hasPlc && (
+          <>
+            <span className={`plc-fresh ${fresh.stale ? 'stale' : ''}`}>
+              PLC {fresh.label}
+            </span>
+          </>
+        )}
+        {hasCam && (
+          <span className={`plc-fresh cam ${camFresh.stale ? 'stale' : ''}`}>
+            CAM {camFresh.label}
+          </span>
+        )}
+        {!hasPlc && !hasCam && <span className="plc-fresh stale">신호 없음</span>}
+        {plc?.edge_id && (
           <>
             <span className="dot">·</span>
             <span>{plc.edge_id}</span>
           </>
         )}
-        {has && plc?.plc_ts && (
+        {hasPlc && plc?.plc_ts && (
           <>
             <span className="dot">·</span>
-            <span>{fmtKstTime(plc.plc_ts)}</span>
+            <span>PLC {fmtKstTime(plc.plc_ts)}</span>
+          </>
+        )}
+        {hasCam && plc?.camera_ts && (
+          <>
+            <span className="dot">·</span>
+            <span>CAM {fmtKstTime(plc.camera_ts)}</span>
           </>
         )}
       </div>

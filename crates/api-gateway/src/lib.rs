@@ -12,11 +12,11 @@ use chrono::{Duration, NaiveDate, Utc};
 use http_body_util::BodyExt;
 use paintrobot_domain as domain;
 use paintrobot_repo_coredb::{
-    CoatingRow, CoreDbClient, JobRow, RepoError, WasiTransport, WeatherRow,
+    CoatingRow, CoreDbClient, JobRow, RecipeRow, RepoError, WasiTransport, WeatherRow,
 };
 use paintrobot_schema::{
     CoatingIn, CoatingOut, DailyStats, IngestResponse, JobIn, PlcCurrent, PlcModelIn,
-    PressureFactors, Rejected, WeatherCurrent,
+    PressureFactors, RecipeIn, Rejected, WeatherCurrent,
 };
 use paintrobot_weather_client::{OwmProvider, WeatherError, WeatherProvider};
 use wstd::http::{Body, Request, Response, StatusCode};
@@ -34,6 +34,8 @@ async fn main(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
         ("POST", "/api/v1/jobs") => Ok(ingest_job(req).await),
         ("POST", "/api/v1/plc/model") => Ok(ingest_plc_model(req).await),
         ("GET", "/api/v1/plc/current") => Ok(plc_current().await),
+        ("POST", "/api/v1/plc/recipe") => Ok(ingest_recipe(req).await),
+        ("GET", "/api/v1/plc/recipe/current") => Ok(recipe_current(&query).await),
         ("POST", "/api/v1/coatings") => Ok(ingest_coating(req).await),
         ("GET", "/api/v1/coatings/today") => Ok(coatings_today().await),
         ("GET", "/api/v1/coatings/recent") => Ok(coatings_recent(&query).await),
@@ -288,6 +290,123 @@ fn sanitize_id(s: &str) -> String {
         })
         .take(64)
         .collect()
+}
+
+// ── paint recipe ─────────────────────────────────────────────────────────────
+
+async fn ingest_recipe(req: Request<Body>) -> Response<Body> {
+    if !check_edge_key(req.headers()) {
+        return json_error(StatusCode::UNAUTHORIZED, "missing or invalid X-Edge-Key");
+    }
+    let body = match read_body(req).await {
+        Ok(b) => b,
+        Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
+    };
+    let inp: RecipeIn = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return json_error(StatusCode::BAD_REQUEST, &format!("invalid body: {e}")),
+    };
+
+    // Every parameter's table/applied array length must equal `levels`.
+    if inp.levels <= 0 || inp.levels > 256 {
+        return json_error(StatusCode::BAD_REQUEST, "levels out of range (1..=256)");
+    }
+    let n = inp.levels as usize;
+    for (name, p) in [
+        ("atomization", &inp.recipe.atomization),
+        ("pattern", &inp.recipe.pattern),
+        ("flow", &inp.recipe.flow),
+    ] {
+        if p.table.len() != n || p.applied.len() != n {
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                &format!("{name}: table/applied length must equal levels ({n})"),
+            );
+        }
+    }
+
+    // Compact (space-free, ASCII) JSON — safe to embed as a CQL text literal.
+    let recipe_json = match serde_json::to_string(&inp.recipe) {
+        Ok(s) => s,
+        Err(e) => return json_error(StatusCode::BAD_REQUEST, &format!("serialize recipe: {e}")),
+    };
+
+    let now = Utc::now();
+    let received_at = now.timestamp_millis();
+    let work_date = now
+        .with_timezone(&config::kst())
+        .format("%Y-%m-%d")
+        .to_string();
+    // Idempotent upsert: one row per (edge, model_no). Re-posting (polling) the
+    // same model overwrites with the latest recipe — CoreDB upserts by PK.
+    let event_id = format!("recipe-{}-{}", sanitize_id(&inp.edge_id), inp.model_no);
+
+    let row = RecipeRow {
+        event_id: event_id.clone(),
+        edge_id: inp.edge_id.clone(),
+        model_no: inp.model_no,
+        model_name: inp.model_name.clone(),
+        levels: inp.levels,
+        recipe_json,
+        received_at,
+        work_date,
+    };
+
+    match client().insert_recipe(&row).await {
+        Ok(()) => json_response(
+            StatusCode::OK,
+            &serde_json::json!({
+                "result": "ok",
+                "event_id": event_id,
+                "model_no": inp.model_no,
+                "model_name": inp.model_name,
+            }),
+        ),
+        Err(e) => repo_error_response(&e),
+    }
+}
+
+/// Most recent recipe posted today (optionally filtered by `?edge_id=`).
+async fn recipe_current(query: &str) -> Response<Body> {
+    let want_edge = query_param(query, "edge_id");
+    let today = Utc::now()
+        .with_timezone(&config::kst())
+        .format("%Y-%m-%d")
+        .to_string();
+    let rows = match client().scan_recipes_for_date(&today, 100_000).await {
+        Ok(r) => r,
+        Err(e) => return repo_error_response(&e),
+    };
+    let latest = rows
+        .iter()
+        .filter(|r| match &want_edge {
+            Some(e) => &r.edge_id == e,
+            None => true,
+        })
+        .max_by_key(|r| r.received_at);
+
+    match latest {
+        Some(r) => {
+            let recipe: serde_json::Value =
+                serde_json::from_str(&r.recipe_json).unwrap_or(serde_json::Value::Null);
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({
+                    "edge_id": r.edge_id,
+                    "model_no": r.model_no,
+                    "model_name": r.model_name,
+                    "levels": r.levels,
+                    "recipe": recipe,
+                    "received_at": r.received_at,
+                    "work_date": r.work_date,
+                }),
+            )
+        }
+        None => json_response(
+            StatusCode::OK,
+            &serde_json::json!({ "model_no": serde_json::Value::Null, "recipe": serde_json::Value::Null }),
+        ),
+    }
 }
 
 // ── coatings ───────────────────────────────────────────────────────────────

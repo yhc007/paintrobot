@@ -18,6 +18,7 @@ mod coatings;
 mod cql;
 mod http;
 mod jobs;
+mod recipes;
 mod weather;
 
 pub use coatings::CoatingRow;
@@ -28,6 +29,7 @@ pub use http::ReqwestTransport;
 #[cfg(target_family = "wasm")]
 pub use http::WasiTransport;
 pub use jobs::JobRow;
+pub use recipes::RecipeRow;
 pub use weather::WeatherRow;
 
 use serde::Deserialize;

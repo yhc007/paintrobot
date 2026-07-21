@@ -133,6 +133,36 @@ pub struct PressureFactors {
     pub humidity: f64,
 }
 
+/// One paint parameter's master (`table`) vs currently-applied (`applied`)
+/// values. Each vector holds `levels` entries; values are INT16-range integers
+/// (0 is valid — e.g. the spray gun is idle).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipeParam {
+    pub table: Vec<i64>,
+    pub applied: Vec<i64>,
+}
+
+/// The three paint parameters the edge reader pulls from the PLC per car model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipeSet {
+    pub atomization: RecipeParam, // 무화
+    pub pattern: RecipeParam,     // 패턴
+    pub flow: RecipeParam,        // 토출량
+}
+
+/// Incoming payload for `POST /api/v1/plc/recipe`. The edge reader posts the
+/// full paint recipe for the car model currently selected on the PLC/HMI.
+/// `model_no` is an integer (HMI selection 1~8) — note this differs from the
+/// string `model_no` used by `PlcModelIn`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipeIn {
+    pub edge_id: String,
+    pub model_no: i64,
+    pub model_name: String,
+    pub levels: i64,
+    pub recipe: RecipeSet,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeatherCurrent {
     pub location_name: &'static str,

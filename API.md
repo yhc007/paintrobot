@@ -30,6 +30,8 @@
 | GET  | `/healthz` | ❌ | 살아있음 확인 |
 | POST | `/api/v1/jobs` | ✅ | **카메라/PLC 인식 결과 수신 (실시간)** |
 | POST | `/api/v1/jobs/batch` | ✅ | 네트워크 복구 시 일괄 업로드 |
+| POST | `/api/v1/plc/recipe` | ✅ | **차종 도장 레시피 수신 (멱등 upsert)** |
+| GET  | `/api/v1/plc/recipe/current` | ❌ | 오늘 마지막으로 수신한 레시피 (`?edge_id=` 필터) |
 | POST | `/api/v1/coatings` | ✅ | 도막 두께 → 권장 분사압력 계산·저장 |
 | GET  | `/api/v1/stats/today` | ❌ | 오늘 모델별 카운트 |
 | GET  | `/api/v1/stats/daily?date=` | ❌ | 특정일 통계 |
@@ -239,6 +241,52 @@ curl -X POST https://paint.coreon.build/api/v1/coatings \
     "current_pressure":3.5
   }'
 ```
+
+---
+
+## 3-1. POST `/api/v1/plc/recipe` — 차종 도장 레시피 수신
+
+엣지 리더(`hdm_paint`)가 PLC에서 읽은 **현재 차종의 도장 레시피**를 전송합니다.
+`(edge_id, model_no)` 당 **1행으로 멱등 upsert** — 폴링(`--watch N`)으로 반복 전송해도
+행이 증가하지 않고 최신값으로 갱신됩니다.
+
+### 요청 바디
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `edge_id`   | string  | **필수** | 엣지 식별자 (예: `edge-line-01`) |
+| `model_no`  | integer | **필수** | 차종번호 = HMI 선택값 (1~8). **정수** (jobs의 문자열 model_no와 다름) |
+| `model_name`| string  | **필수** | 모델명 (예: `"140"`) |
+| `levels`    | integer | **필수** | 각 파라미터 배열의 구간 수 (예: 8) |
+| `recipe.atomization` | `{table:[int], applied:[int]}` | **필수** | 무화 (저장값/적용값) |
+| `recipe.pattern`     | `{table:[int], applied:[int]}` | **필수** | 패턴 |
+| `recipe.flow`        | `{table:[int], applied:[int]}` | **필수** | 토출량 |
+
+- `table`/`applied` 배열 길이는 **반드시 `levels` 와 동일** (아니면 400).
+- 값은 INT16 범위. `0`도 정상 데이터로 저장 (스프레이 미분사 시 0으로 내려감).
+- `table` = PLC 마스터 저장값, `applied` = 현재 적용값 (캘리브레이션으로 다를 수 있음).
+
+### 응답 (HTTP 200)
+
+```json
+{ "result": "ok", "event_id": "recipe-edge-line-01-8", "model_no": 8, "model_name": "140" }
+```
+
+- `401` 인증 실패 / `400` 스키마·배열 길이 오류 (`{"error":"...설명..."}`) / `502` CoreDB 오류.
+
+### 예시
+
+```bash
+curl -X POST http://192.168.10.30:18080/api/v1/plc/recipe \
+  -H "Content-Type: application/json" \
+  -H "x-edge-key: <YOUR_EDGE_KEY>" \
+  -d '{"edge_id":"edge-line-01","model_no":8,"model_name":"140","levels":8,"recipe":{"atomization":{"table":[50,50,50,50,50,0,0,0],"applied":[35,35,35,35,0,0,0,0]},"pattern":{"table":[30,30,30,30,30,0,0,0],"applied":[20,20,20,20,0,0,0,0]},"flow":{"table":[0,0,0,0,0,0,0,0],"applied":[0,0,0,0,0,0,0,0]}}}'
+```
+
+### GET `/api/v1/plc/recipe/current` — 최신 레시피 조회 (인증 불필요)
+
+오늘 수신한 레시피 중 가장 최근 것을 반환. `?edge_id=edge-line-01` 로 라인 필터.
+저장된 `recipe` 오브젝트를 그대로 되돌려줍니다. 없으면 `{"model_no":null,"recipe":null}`.
 
 ---
 

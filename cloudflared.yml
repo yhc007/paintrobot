@@ -2,6 +2,17 @@ tunnel: 1b548272-6a44-4e38-b76f-71fa0db07c1c
 credentials-file: /home/root1/.cloudflared/1b548272-6a44-4e38-b76f-71fa0db07c1c.json
 
 ingress:
+  # Camera live relay (go2rtc). VIEW-ONLY allowlist — the go2rtc API can add
+  # streams (exec sources ⇒ RCE), restart, and edit config, so only the player
+  # assets + read-only media endpoints are exposed. Everything else → 404.
+  - hostname: cam.coreon.build
+    path: ^/(stream\.html|video-stream\.js|video-rtc\.js)$
+    service: http://127.0.0.1:1984
+  - hostname: cam.coreon.build
+    path: ^/api/(ws|frame\.jpeg|stream\.[a-z0-9]+)$
+    service: http://127.0.0.1:1984
+  - hostname: cam.coreon.build
+    service: http_status:404
   # API + healthz → wasmtime WASM server
   - hostname: paint.coreon.build
     path: ^/(api|healthz)(/.*)?$

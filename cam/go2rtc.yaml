@@ -1,0 +1,26 @@
+# go2rtc — 페인트 공정 카메라 실시간 릴레이
+#
+# 흐름:
+#   [Edge PC 앱] --ffmpeg RTSP push (LAN)--> :8554/paint_cam
+#                                              │ go2rtc
+#            브라우저 <--MSE/WSS-- cam.coreon.build <--cloudflared-- 127.0.0.1:1984
+#
+# - api(1984)는 localhost 바인딩: cloudflared 터널만 이 포트로 프록시한다.
+# - rtsp(8554)는 전체 바인딩: 같은 사내망 Edge PC가 여기로 push 한다.
+# - webrtc(8555)는 터널(UDP 불가) 위에선 미사용 — MSE(WebSocket)로 서빙한다.
+
+api:
+  listen: "127.0.0.1:1984"   # 대시보드/HTTP API/MSE WebSocket (터널 뒤)
+
+rtsp:
+  listen: ":8554"            # Edge ffmpeg publish 수신 (rtsp://<root1-ip>:8554/paint_cam)
+
+webrtc:
+  listen: ":8555"            # 터널 경유 시 미사용(로컬/LAN WebRTC용으로만 남겨둠)
+
+log:
+  level: info
+
+streams:
+  # source 없이 비워두면 외부에서 RTSP publish 를 받는 스트림이 된다.
+  paint_cam:

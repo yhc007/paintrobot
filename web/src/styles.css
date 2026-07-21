@@ -280,3 +280,287 @@ footer {
   border-top: 1px solid var(--border-light);
   background: var(--bg-primary);
 }
+
+/* ── live camera ─────────────────────────────────────────────── */
+.cam-sub { color: var(--text-tertiary); font-size: 0.9rem; margin: 4px 0 16px; }
+.cam-card {
+  background: linear-gradient(135deg, #1b1b1b 0%, #2d3748 100%);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+.cam-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--siemens-teal), var(--accent-orange));
+}
+.cam-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cam-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.cam-meta {
+  margin-top: 12px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.65);
+}
+.cam-meta a { color: #5dd7d7; text-decoration: none; }
+.cam-meta a:hover { text-decoration: underline; }
+.cam-meta .dot { color: rgba(255,255,255,0.3); }
+.cam-live {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(208,2,27,0.18);
+  color: #ff6b7a;
+  border: 1px solid rgba(208,2,27,0.5);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.cam-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #ff3b30;
+  box-shadow: 0 0 0 0 rgba(255,59,48,0.6);
+  animation: cam-pulse 1.6s infinite;
+}
+@keyframes cam-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(255,59,48,0.6); }
+  70%  { box-shadow: 0 0 0 7px rgba(255,59,48,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,59,48,0); }
+}
+.cam-note { margin-top: 14px; color: var(--text-tertiary); font-size: 0.82rem; line-height: 1.6; }
+
+/* ═══════════════════════════════════════════════════════════════
+   3D depth system — dashboard as a bank of industrial control panels
+   Layered onto the rules above via source order (later wins).
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --elev-1:
+    0 1px 1px rgba(16,24,40,.05),
+    0 3px 6px rgba(16,24,40,.06),
+    0 10px 20px -6px rgba(16,24,40,.12),
+    inset 0 1px 0 rgba(255,255,255,.95),
+    inset 0 -1px 0 rgba(16,24,40,.05);
+  --elev-2:
+    0 2px 3px rgba(16,24,40,.06),
+    0 10px 16px rgba(16,24,40,.10),
+    0 24px 42px -10px rgba(16,24,40,.22),
+    inset 0 1px 0 rgba(255,255,255,.95);
+  --elev-dark:
+    0 2px 4px rgba(0,0,0,.30),
+    0 16px 32px -8px rgba(0,0,0,.48),
+    inset 0 1px 0 rgba(255,255,255,.14),
+    inset 0 -2px 6px rgba(0,0,0,.35);
+  --ease-3d: cubic-bezier(.2,.7,.2,1);
+}
+
+/* machined-metal working surface so light panels read as raised */
+body {
+  background:
+    radial-gradient(1200px 700px at 15% -10%, #fbfcfe 0%, rgba(251,252,254,0) 55%),
+    linear-gradient(180deg, #eef1f5 0%, #e3e7ee 100%) fixed;
+}
+body::before { /* faint engineering grid etched into the surface */
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(rgba(27,27,27,.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(27,27,27,.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(circle at 50% 26%, #000 0%, transparent 78%);
+  mask-image: radial-gradient(circle at 50% 26%, #000 0%, transparent 78%);
+}
+.shell { position: relative; z-index: 1; }
+.header { box-shadow: 0 6px 18px rgba(16,24,40,.28); }
+
+/* perspective on the board so hover tilts read as real depth */
+main { perspective: 1600px; perspective-origin: 50% -8%; }
+
+/* flat panels: seated elevation */
+.kpi, .chart, table, .sender {
+  box-shadow: var(--elev-1);
+  transition: transform .28s var(--ease-3d), box-shadow .28s var(--ease-3d);
+  will-change: transform;
+}
+/* signature tactile lift — reserved for the non-interactive KPI tiles */
+.kpi:hover { transform: translateY(-5px) rotateX(3.5deg); box-shadow: var(--elev-2); }
+.kpi-value { text-shadow: 0 1px 0 rgba(255,255,255,.85); }
+
+/* hero panels: deep extrusion + a slight console tilt on hover */
+.plc-card, .cam-card {
+  box-shadow: var(--elev-dark);
+  transition: transform .3s var(--ease-3d), box-shadow .3s var(--ease-3d);
+}
+.plc-card { border-radius: 16px; }
+.plc-card:hover, .cam-card:hover {
+  transform: translateY(-4px) rotateX(4deg);
+  box-shadow:
+    0 4px 8px rgba(0,0,0,.30),
+    0 28px 54px -10px rgba(0,0,0,.55),
+    inset 0 1px 0 rgba(255,255,255,.16),
+    inset 0 -2px 6px rgba(0,0,0,.4);
+}
+.plc-model { text-shadow: 0 2px 0 rgba(0,0,0,.45), 0 5px 16px rgba(232,69,29,.35); }
+
+/* pressable 3D nav buttons */
+.nav-btn {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 2px 4px rgba(0,0,0,.3);
+  transition: transform .12s var(--ease-3d), background .15s, box-shadow .12s;
+}
+.nav-btn:hover { transform: translateY(-1px); }
+.nav-btn:active { transform: translateY(1px); box-shadow: inset 0 2px 5px rgba(0,0,0,.45); }
+.nav-btn.active { box-shadow: inset 0 2px 5px rgba(0,0,0,.4); }
+
+/* ── Today: main column + live rail (~1/4) ─────────────────────── */
+.today-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 26%, 380px);
+  gap: 22px;
+  align-items: start;
+  margin-top: 8px;
+}
+.today-main { min-width: 0; }
+.today-main h2 { margin-top: 24px; }
+.today-side {
+  position: sticky; top: 92px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.side-head { display: flex; align-items: baseline; justify-content: space-between; }
+.side-title {
+  font-size: .8rem; font-weight: 700; letter-spacing: .5px;
+  text-transform: uppercase; color: var(--text-secondary);
+}
+.side-link { font-size: .78rem; color: var(--siemens-blue); text-decoration: none; }
+.side-link:hover { text-decoration: underline; }
+
+/* compact camera card for the rail */
+.cam-compact { padding: 10px; border-radius: 12px; }
+.cam-compact .cam-meta { margin-top: 8px; font-size: .78rem; justify-content: space-between; }
+
+/* LIVE badge overlaid on the video frame */
+.cam-badge {
+  position: absolute; top: 10px; left: 10px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px;
+  background: rgba(208,2,27,.85); color: #fff;
+  font-size: .68rem; font-weight: 800; letter-spacing: .6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+}
+
+@media (max-width: 1100px) {
+  .today-grid { grid-template-columns: 1fr; }
+  .today-side { position: static; order: -1; } /* live on top when stacked */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kpi, .chart, table, .sender, .plc-card, .cam-card, .nav-btn { transition: none; }
+  .kpi:hover, .plc-card:hover, .cam-card:hover,
+  .nav-btn:hover, .nav-btn:active { transform: none; }
+}
+
+/* ── Today rail summary panel ─────────────────────────────────── */
+.side-panel {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: var(--elev-1);
+}
+.side-panel-head {
+  font-size: .8rem; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--text-secondary); margin-bottom: 10px;
+}
+.side-stat {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 6px 0; border-bottom: 1px dashed var(--border-light);
+  font-size: .9rem; color: var(--text-secondary);
+}
+.side-stat b { font-size: 1.15rem; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.side-stat .warn, .side-stat b.warn { color: var(--status-stopped); }
+.side-sub {
+  margin: 14px 0 8px; font-size: .72rem; font-weight: 700; letter-spacing: .5px;
+  text-transform: uppercase; color: var(--text-tertiary);
+}
+.side-bar-row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+.side-bar-label {
+  width: 22px; text-align: center; font-weight: 700; font-size: .8rem;
+  color: var(--text-secondary); font-variant-numeric: tabular-nums;
+}
+.side-bar-track {
+  display: block; flex: 1; height: 8px; border-radius: 999px;
+  background: var(--bg-tertiary); overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(16,24,40,.12);
+}
+.side-bar-fill {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--siemens-blue), var(--siemens-teal));
+}
+.side-bar-fill.warn { background: linear-gradient(90deg, var(--accent-orange), #f0a03c); }
+.side-bar-val {
+  width: 24px; text-align: right; font-size: .8rem; font-variant-numeric: tabular-nums;
+  color: var(--text-primary); font-weight: 600;
+}
+.side-empty { color: var(--text-tertiary); font-size: .85rem; padding: 4px 0; }
+
+/* ── modern header (robot & address removed) ──────────────────── */
+.header {
+  background: linear-gradient(180deg, #212228 0%, #15161a 100%);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  box-shadow: 0 8px 24px rgba(16,24,40,.30);
+}
+.header-top-bar { height: 3px; opacity: .9; }
+.header-content { padding: 16px 28px; }
+
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand-bar {
+  width: 4px; height: 30px; border-radius: 3px; flex: none;
+  background: linear-gradient(180deg, var(--siemens-teal) 0%, var(--accent-orange) 100%);
+  box-shadow: 0 0 12px rgba(0,153,153,.45);
+}
+.brand-title { display: flex; align-items: center; gap: 12px; }
+.brand-title strong {
+  font-size: 1.4rem; font-weight: 800; letter-spacing: -.4px; color: #fff;
+}
+.brand-title .proc {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.16);
+  color: rgba(255,255,255,.72);
+  font-size: .66rem; font-weight: 600; letter-spacing: 1.5px;
+  padding: 3px 9px; border-radius: 6px; text-transform: uppercase;
+}
+
+/* modern ghost-pill nav */
+.nav-btn {
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 8px; font-weight: 600;
+  box-shadow: none;
+}
+.nav-btn:hover {
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.22);
+  transform: translateY(-1px);
+}
+.nav-btn.active {
+  background: linear-gradient(180deg, var(--siemens-blue) 0%, #005699 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(0,102,179,.4);
+}
+.live-badge, .weather { border-radius: 8px; }

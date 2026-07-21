@@ -6,6 +6,7 @@ import App from './App';
 import Today from './pages/Today';
 import Range from './pages/Range';
 import Coating from './pages/Coating';
+import Live from './pages/Live';
 import './styles.css';
 
 const qc = new QueryClient({
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route element={<App />}>
             <Route index element={<Navigate to="/today" replace />} />
             <Route path="today" element={<Today />} />
+            <Route path="live" element={<Live />} />
             <Route path="range" element={<Range />} />
             <Route path="coating" element={<Coating />} />
           </Route>

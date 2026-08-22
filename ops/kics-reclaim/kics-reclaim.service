@@ -1,0 +1,11 @@
+[Unit]
+Description=Reclaim disk held by Kaspersky KICS deleted-open temp files
+Documentation=file:/usr/local/bin/kics-reclaim.sh
+ConditionPathExists=/usr/local/bin/kics-reclaim.sh
+Wants=kics.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kics-reclaim.sh
+# 넉넉한 상한 — 재시작+검증 정도만 수행
+TimeoutStartSec=120

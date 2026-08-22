@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically reclaim disk held by Kaspersky KICS
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+Persistent=true
+Unit=kics-reclaim.service
+
+[Install]
+WantedBy=timers.target

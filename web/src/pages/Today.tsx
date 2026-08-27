@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, DailyStats, LiveFrame, PlcCurrent } from '../lib/api';
-import KpiCard from '../components/KpiCard';
+import Blueprint from '../components/Blueprint';
 import PlcCard from '../components/PlcCard';
 import LivePanel from '../components/LivePanel';
 
@@ -42,95 +41,133 @@ export default function Today() {
     return () => { es.close(); clearInterval(tick); };
   }, [qc]);
 
-  if (stats.isLoading) return <p>로딩중…</p>;
+  if (stats.isLoading) return <p className="hint">로딩중…</p>;
   if (stats.error || !stats.data) return <p className="err">데이터를 가져오지 못했습니다.</p>;
+
   const s = stats.data;
   const cur: PlcCurrent | null | undefined = plc.data;
-  const topModels = [...s.models].sort((a, b) => b.job_count - a.job_count).slice(0, 5);
-  const maxCount = Math.max(1, ...topModels.map(m => m.job_count));
+  const ranked = [...s.models].sort((a, b) => b.job_count - a.job_count);
+  const maxCount = Math.max(1, ...ranked.map(m => m.job_count));
+  const top = ranked[0];
+  const missPct = s.total_jobs > 0 ? (s.mismatch_jobs / s.total_jobs) * 100 : 0;
+  const clean = s.mismatch_jobs === 0;
 
   return (
-    <section>
-      <h1>오늘 ({s.work_date})</h1>
+    <>
+      <div className="page-head">
+        <h1 className="page-title">금일 현황</h1>
+        <span className="page-note">기준일 {s.work_date} · 30초 주기 갱신 · 이벤트 스트림 연결</span>
+      </div>
 
-      <PlcCard plc={cur} />
+      <section className="row-3">
+        <PlcCard plc={cur} />
 
-      <div className="today-grid">
-        <div className="today-main">
-          <div className="kpi-row">
-            <KpiCard label="총 작업" value={s.total_jobs} />
-            <KpiCard label="모델 종류" value={s.models.length} />
-            <KpiCard label="불일치" value={s.mismatch_jobs} accent={s.mismatch_jobs > 0 ? 'warn' : 'normal'} />
+        <Blueprint
+          title="금일 생산 실적"
+          right={<div className="verdict idle">누계</div>}
+          foot={
+            <>
+              <span>모델 {s.models.length}종</span>
+              {top && <span>최다 {top.model_no} · {top.job_count}대</span>}
+              <span className="push">edge → paint.coreon.build</span>
+            </>
+          }
+        >
+          <div className="match-row">
+            <div className="gauge-value">
+              {s.total_jobs}
+              <span className="gauge-unit"> 대</span>
+            </div>
+            <div className="match-aside">
+              <div>정상 {s.total_jobs - s.mismatch_jobs}대</div>
+              <div>불일치 {s.mismatch_jobs}대</div>
+            </div>
           </div>
+        </Blueprint>
 
-          <h2>모델별 카운트</h2>
-          <div className="chart">
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={s.models}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
-                <XAxis dataKey="model_no" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="job_count" fill="#4f46e5" name="작업" />
-                <Bar dataKey="mismatch_count" fill="#ef4444" name="불일치" />
-              </BarChart>
-            </ResponsiveContainer>
+        <Blueprint
+          title="품질 이상 · 모델 불일치"
+          right={<div className={`verdict ${clean ? 'ok' : 'bad'}`}>{clean ? '정상' : '확인 필요'}</div>}
+          foot={
+            <>
+              <span>불일치율 {missPct.toFixed(1)}%</span>
+              <span className="push">PLC 지시 ↔ 카메라 인식</span>
+            </>
+          }
+        >
+          <div className="match-row">
+            <div className={`gauge-value${clean ? ' ok' : ' bad'}`}>
+              {s.mismatch_jobs}
+              <span className="gauge-unit"> 건</span>
+            </div>
           </div>
+        </Blueprint>
+      </section>
 
-          <h2>모델별 상세</h2>
+      <section className="row-live">
+        <Blueprint
+          title="투입구 카메라 · 실시간"
+          right={<a className="verdict idle" href="/live" style={{ textDecoration: 'none' }}>크게 보기</a>}
+        >
+          <LivePanel compact />
+        </Blueprint>
+
+        <Blueprint title="모델별 생산 순위 · 금일">
+          {ranked.length === 0 && <div className="hint">아직 집계된 작업이 없습니다.</div>}
+          {ranked.map(m => (
+            <div className="rank-row" key={m.model_no}>
+              <span className="rank-label">{m.model_no}</span>
+              <span className="bar-track">
+                <span
+                  className={`bar-fill${m.mismatch_count > 0 ? ' bad' : ''}`}
+                  style={{ width: `${(m.job_count / maxCount) * 100}%`, display: 'block' }}
+                />
+              </span>
+              <span className="rank-val">{m.job_count}</span>
+            </div>
+          ))}
+        </Blueprint>
+      </section>
+
+      <Blueprint title="모델별 상세 · 금일">
+        <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>모델</th>
-                <th>작업 수</th>
-                <th>불일치</th>
+                <th style={{ textAlign: 'right' }}>생산</th>
+                <th style={{ textAlign: 'right' }}>불일치</th>
+                <th style={{ textAlign: 'right' }}>불일치율</th>
+                <th style={{ textAlign: 'right' }}>비중</th>
+                <th>판정</th>
               </tr>
             </thead>
             <tbody>
-              {s.models.map(m => (
-                <tr key={m.model_no}>
-                  <td>{m.model_no}</td>
-                  <td>{m.job_count}</td>
-                  <td className={m.mismatch_count > 0 ? 'warn' : ''}>{m.mismatch_count}</td>
-                </tr>
-              ))}
+              {ranked.length === 0 && (
+                <tr><td className="empty-row" colSpan={6}>데이터 없음</td></tr>
+              )}
+              {ranked.map(m => {
+                const rate = m.job_count > 0 ? (m.mismatch_count / m.job_count) * 100 : 0;
+                const share = s.total_jobs > 0 ? (m.job_count / s.total_jobs) * 100 : 0;
+                return (
+                  <tr key={m.model_no}>
+                    <td><span className="model">{m.model_no}</span></td>
+                    <td className="num">{m.job_count}</td>
+                    <td className={`num${m.mismatch_count > 0 ? ' bad' : ''}`}>{m.mismatch_count}</td>
+                    <td className="num">{rate.toFixed(1)}%</td>
+                    <td className="num">{share.toFixed(1)}%</td>
+                    <td>
+                      <span className={`verdict ${m.mismatch_count > 0 ? 'bad' : 'ok'}`}>
+                        {m.mismatch_count > 0 ? '이상' : '정상'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-
-        <aside className="today-side">
-          <div className="side-head">
-            <span className="side-title">실시간 영상</span>
-            <a className="side-link" href="/live">크게 보기</a>
-          </div>
-          <LivePanel compact />
-
-          <div className="side-panel">
-            <div className="side-panel-head">오늘 요약</div>
-            <div className="side-stat"><span>총 작업</span><b>{s.total_jobs}</b></div>
-            <div className="side-stat"><span>모델 종류</span><b>{s.models.length}</b></div>
-            <div className="side-stat">
-              <span className={s.mismatch_jobs > 0 ? 'warn' : ''}>불일치</span>
-              <b className={s.mismatch_jobs > 0 ? 'warn' : ''}>{s.mismatch_jobs}</b>
-            </div>
-
-            <div className="side-sub">모델별 TOP</div>
-            {topModels.length === 0 && <div className="side-empty">아직 작업 없음</div>}
-            {topModels.map(m => (
-              <div className="side-bar-row" key={m.model_no}>
-                <span className="side-bar-label">{m.model_no}</span>
-                <span className="side-bar-track">
-                  <span
-                    className={`side-bar-fill${m.mismatch_count > 0 ? ' warn' : ''}`}
-                    style={{ width: `${(m.job_count / maxCount) * 100}%` }}
-                  />
-                </span>
-                <span className="side-bar-val">{m.job_count}</span>
-              </div>
-            ))}
-          </div>
-        </aside>
-      </div>
-    </section>
+      </Blueprint>
+    </>
   );
 }

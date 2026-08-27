@@ -1,10 +1,23 @@
-type Props = { label: string; value: string | number; accent?: 'normal' | 'warn' };
+import Blueprint from './Blueprint';
 
-export default function KpiCard({ label, value, accent = 'normal' }: Props) {
+type Props = {
+  label: string;
+  value: string | number;
+  unit?: string;
+  sub?: string;
+  accent?: 'normal' | 'ice' | 'ok' | 'warn' | 'bad' | 'idle';
+};
+
+// 계기 타일 — 라벨 / 대형 수치 / 보조 설명 한 줄.
+export default function KpiCard({ label, value, unit, sub, accent = 'normal' }: Props) {
   return (
-    <div className={`kpi kpi-${accent}`}>
-      <div className="kpi-label">{label}</div>
-      <div className="kpi-value">{value}</div>
-    </div>
+    <Blueprint className="tile">
+      <div className="gauge-label">{label}</div>
+      <div className={`gauge-value${accent === 'normal' ? '' : ` ${accent}`}`}>
+        {value}
+        {unit && <span className="gauge-unit"> {unit}</span>}
+      </div>
+      {sub && <div className="tile-sub">{sub}</div>}
+    </Blueprint>
   );
 }

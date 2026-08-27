@@ -1,567 +1,545 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Paintrobot — 도장공정 관제
+   블루프린트(청사진) 디자인 시스템. 다크 네이비 바탕 + 격자 오버레이 +
+   코너 레지스트레이션 마크, 사각(radius 0) 하드라인 패널.
+   숫자/영문은 Barlow Condensed 계열, 한글은 Noto Sans KR로 떨어진다.
+   ══════════════════════════════════════════════════════════════════ */
+
 :root {
-  /* mirrored from hdm.coreon.build (Siemens-inspired) */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f4f6f8;
-  --bg-tertiary: #ebeef2;
-  --siemens-dark: #1b1b1b;
-  --siemens-teal: #009999;
-  --siemens-blue: #0066b3;
-  --status-running: #00a651;
-  --status-running-bg: #e6f7ed;
-  --status-stopped: #d0021b;
-  --text-primary: #1b1b1b;
-  --text-secondary: #4a5568;
-  --text-tertiary: #718096;
-  --text-white: #ffffff;
-  --border-light: #e2e8f0;
-  --border-medium: #cbd5e1;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
-  --accent-orange: #E8451D;
+  /* — ground — */
+  --pb-bg: #1d2d3d;
+  --pb-bg-deep: #16232f;
+  --pb-text: #e6edf4;
+  --pb-divider: rgba(230, 237, 244, 0.22);
+  --pb-divider-soft: rgba(230, 237, 244, 0.14);
+  --pb-fill: rgba(148, 188, 227, 0.08);
+  --pb-fill-strong: rgba(148, 188, 227, 0.14);
+
+  /* — ink ramp — */
+  --pb-soft: #cfe0ef;   /* 준강조 텍스트 */
+  --pb-muted: #9ebbd8;  /* 라벨 */
+  --pb-dim: #7e9cb8;    /* 보조 수치 */
+
+  /* — accents — */
+  --pb-ice: #94bce3;
+  --pb-steel: #5980a6;
+  --pb-ok: #6fcf97;
+  --pb-warn: #e8a33d;
+  --pb-bad: #d9614c;
+
+  /* — type — */
+  --pb-display: 'Barlow Condensed', 'Noto Sans KR', system-ui, sans-serif;
+  --pb-label: 'Barlow Semi Condensed', 'Noto Sans KR', system-ui, sans-serif;
+  --pb-body: 'Barlow', 'Noto Sans KR', system-ui, sans-serif;
+
+  /* — 관제 모니터(1920) 기준 눈금. 좁아지면 같은 비율로 줄어든다 — */
+  --pb-gap: clamp(14px, 1.46vw, 28px);
+  --pb-pad-x: clamp(16px, 2.08vw, 40px);
+  --pb-hero: clamp(38px, 3.13vw, 60px);   /* 대형 수치 */
+  --pb-big: clamp(28px, 2.19vw, 42px);    /* 중형 수치 */
+  --pb-lab: clamp(15px, 1.04vw, 20px);    /* 패널 라벨 */
+  --pb-meta: clamp(13px, 0.94vw, 18px);   /* 보조 텍스트 */
 }
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+
 body {
-  font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  line-height: 1.5;
+  background: var(--pb-bg);
+  color: var(--pb-text);
+  font-family: var(--pb-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
-.shell { display: flex; flex-direction: column; min-height: 100%; }
+/* 청사진 격자 — 화면 전체에 고정, 내용 뒤로 깔린다 */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(230, 237, 244, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(230, 237, 244, 0.035) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
 
-/* ── header (hdm-style) ──────────────────────────────────────── */
+.shell { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100%; }
+
+@keyframes pb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* ── 헤더 ─────────────────────────────────────────────────────── */
 .header {
-  background: var(--siemens-dark);
-  color: var(--text-white);
-  position: sticky;
-  top: 0;
-  z-index: 100;
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center;
+  gap: clamp(14px, 1.67vw, 32px);
+  padding: 0 var(--pb-pad-x);
+  min-height: clamp(60px, 4.58vw, 88px);
+  background: var(--pb-bg);
+  border-bottom: 1px solid var(--pb-divider);
+  flex-wrap: wrap;
 }
-.header-top-bar {
-  height: 4px;
-  background: linear-gradient(90deg, var(--siemens-teal) 0%, var(--siemens-blue) 100%);
-}
-.header-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 28px;
-  max-width: 1800px;
-  margin: 0 auto;
-  gap: 24px;
-}
-.header-left { display: flex; align-items: center; gap: 20px; }
-.header-right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 
-.logo { display: flex; align-items: center; gap: 14px; }
-.robot-icon { flex-shrink: 0; }
-.brand-text { display: flex; flex-direction: column; line-height: 1.2; }
-.brand-title { display: flex; align-items: center; gap: 10px; }
-.brand-title strong {
-  font-size: 1.25rem;
-  letter-spacing: 0.3px;
-  color: var(--text-white);
+.brand { display: flex; align-items: baseline; gap: clamp(8px, 0.73vw, 14px); }
+.brand-bar {
+  width: 5px; height: clamp(22px, 1.77vw, 34px); flex: none;
+  background: var(--pb-ice);
+  align-self: center;
 }
-.brand .site {
-  font-size: 0.78rem;
-  color: rgba(255,255,255,0.55);
-  margin-top: 2px;
+.brand-name {
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: clamp(22px, 1.77vw, 34px);
+  letter-spacing: 0.02em; line-height: 1;
 }
-.brand .proc {
-  background: rgba(232,69,29,0.15);
-  color: #ffb593;
-  border: 1px solid rgba(232,69,29,0.5);
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 3px 10px;
-  border-radius: 999px;
-  letter-spacing: 0.5px;
+.brand-sub {
+  font-family: var(--pb-label);
+  font-size: clamp(14px, 1.04vw, 20px);
+  letter-spacing: 0.08em; color: var(--pb-muted);
+}
+
+.nav-links { display: flex; gap: 4px; flex-wrap: wrap; }
+.nav-btn {
+  font-family: var(--pb-label);
+  font-size: clamp(15px, 1.15vw, 22px);
+  letter-spacing: 0.1em;
+  padding: clamp(6px, 0.52vw, 10px) clamp(12px, 1.15vw, 22px);
+  color: var(--pb-soft);
+  background: transparent;
+  border: 1px solid var(--pb-divider);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.nav-btn:hover { border-color: var(--pb-ice); }
+.nav-btn.active {
+  background: var(--pb-ice);
+  color: #12202c;
+  border-color: var(--pb-ice);
+}
+
+.header-right {
+  margin-left: auto;
+  display: flex; align-items: center;
+  gap: clamp(12px, 1.46vw, 28px);
+  flex-wrap: wrap;
 }
 
 .live-badge {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 14px;
-  background: rgba(0,166,81,0.15);
-  border: 1px solid var(--status-running);
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--status-running);
-  white-space: nowrap;
+  display: flex; align-items: center; gap: 10px;
+  padding: clamp(5px, 0.42vw, 8px) clamp(10px, 0.83vw, 16px);
+  border: 1px solid rgba(148, 188, 227, 0.5);
 }
 .live-dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  background: var(--status-running);
-  box-shadow: 0 0 0 0 rgba(0,166,81,0.7);
-  animation: pulse 1.5s ease-in-out infinite;
+  width: 9px; height: 9px; flex: none;
+  background: var(--pb-ok);
+  animation: pb-pulse 2s infinite;
 }
-@keyframes pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(0,166,81,0.6); }
-  70%  { box-shadow: 0 0 0 8px rgba(0,166,81,0); }
-  100% { box-shadow: 0 0 0 0 rgba(0,166,81,0); }
-}
-
-.nav-links { display: flex; gap: 8px; }
-.nav-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 16px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.18);
-  border-radius: 6px;
-  color: var(--text-white);
-  text-decoration: none;
-  font-size: 0.9rem;
-  font-weight: 600;
-  transition: all 0.15s ease;
-}
-.nav-btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.32); }
-.nav-btn.active {
-  background: var(--siemens-blue);
-  border-color: var(--siemens-blue);
-  color: var(--text-white);
+.live-badge.off .live-dot { background: var(--pb-bad); }
+.live-badge span {
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta);
+  letter-spacing: 0.08em; color: var(--pb-soft);
+  white-space: nowrap;
 }
 
-.weather {
-  display: inline-flex; align-items: baseline; gap: 8px;
-  padding: 8px 14px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.18);
-  border-radius: 6px;
+.env-strip {
+  display: flex; gap: clamp(10px, 1.25vw, 24px);
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta);
+  color: var(--pb-muted);
+  white-space: nowrap;
+}
+
+.clock {
+  font-family: var(--pb-display); font-weight: 500;
+  font-size: clamp(24px, 2.08vw, 40px);
+  letter-spacing: 0.02em; line-height: 1;
+  min-width: 3.4em; text-align: right;
   font-variant-numeric: tabular-nums;
-  color: var(--text-white);
-}
-.weather .t { font-size: 1rem; font-weight: 700; }
-.weather .h { font-size: 0.8rem; color: rgba(255,255,255,0.7); }
-
-@media (max-width: 900px) {
-  .header-content { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px 20px; }
-  .header-right { justify-content: flex-start; }
-  .nav-links { width: 100%; }
-  .nav-btn { flex: 1; justify-content: center; }
 }
 
-/* ── main ────────────────────────────────────────────────────── */
-main { flex: 1; padding: 24px; max-width: 1400px; width: 100%; margin: 0 auto; }
-h1 { margin-top: 0; font-size: 1.4rem; color: var(--text-primary); }
-h2 { font-size: 0.95rem; color: var(--text-secondary); margin-top: 28px; }
+/* ── 본문 ─────────────────────────────────────────────────────── */
+main {
+  padding: var(--pb-gap) var(--pb-pad-x) clamp(20px, 2vw, 36px);
+  flex: 1;
+  display: flex; flex-direction: column; gap: var(--pb-gap);
+}
 
-/* current PLC banner */
-.plc-card {
-  background: linear-gradient(135deg, #1b1b1b 0%, #2d3748 100%);
-  color: var(--text-white);
-  border-radius: 12px;
-  padding: 20px 28px;
-  margin-bottom: 16px;
-  box-shadow: var(--shadow-md);
+.page-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.page-title {
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: clamp(22px, 1.67vw, 32px);
+  letter-spacing: 0.02em; margin: 0;
+}
+.page-note {
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); color: var(--pb-dim);
+}
+
+/* ── 블루프린트 패널 ──────────────────────────────────────────── */
+.bp {
   position: relative;
-  overflow: hidden;
+  border: 1px solid var(--pb-divider);
+  border-radius: 0;
+  padding: clamp(14px, 1.15vw, 22px) clamp(16px, 1.35vw, 26px);
+  min-width: 0;
 }
-.plc-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--siemens-teal), var(--accent-orange));
+/* 코너 레지스트레이션 마크 — 테두리 바깥으로 그려진다 */
+.bp > .corner {
+  position: absolute; width: 11px; height: 11px;
+  color: color-mix(in srgb, var(--pb-text) 55%, transparent);
+  pointer-events: none;
 }
-.plc-card.plc-empty { opacity: 0.7; }
-.plc-label {
-  font-size: 0.78rem;
-  color: rgba(255,255,255,0.6);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  font-weight: 600;
+.bp > .corner::before,
+.bp > .corner::after { content: ''; position: absolute; background: currentColor; }
+.bp > .corner::before { left: 5px; top: 0; width: 1px; height: 100%; }
+.bp > .corner::after { top: 5px; left: 0; width: 100%; height: 1px; }
+.bp > .corner.tl { top: -6px; left: -6px; }
+.bp > .corner.tr { top: -6px; right: -6px; }
+.bp > .corner.bl { bottom: -6px; left: -6px; }
+.bp > .corner.br { bottom: -6px; right: -6px; }
+
+.bp-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
 }
-.plc-model {
-  font-size: 3rem;
-  font-weight: 800;
-  line-height: 1.1;
-  margin-top: 8px;
+.bp-title {
+  font-family: var(--pb-label);
+  font-size: var(--pb-lab);
+  letter-spacing: 0.08em; color: var(--pb-muted);
+}
+.bp-foot {
+  display: flex; gap: clamp(10px, 1.04vw, 20px); flex-wrap: wrap;
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); color: var(--pb-dim);
+  border-top: 1px solid var(--pb-divider-soft);
+  padding-top: 12px; margin-top: 12px;
+}
+.bp-foot .push { margin-left: auto; }
+
+/* 판정 배지 — 패널 헤더 우측 */
+.verdict {
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta);
+  letter-spacing: 0.1em;
+  padding: 3px 12px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.verdict.ok { color: var(--pb-ok); }
+.verdict.warn { color: var(--pb-warn); }
+.verdict.bad { color: var(--pb-bad); }
+.verdict.idle { color: var(--pb-dim); }
+
+/* ── 레이아웃 격자 ────────────────────────────────────────────── */
+.row-3 {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: 1.25fr 1.35fr 1fr;
+}
+.row-4 { display: grid; gap: var(--pb-gap); grid-template-columns: repeat(4, 1fr); }
+.row-2 { display: grid; gap: var(--pb-gap); grid-template-columns: 1.4fr 1fr; }
+.row-live {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+@media (max-width: 1400px) {
+  .row-3 { grid-template-columns: 1fr 1fr; }
+  .row-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 1100px) {
+  .row-2, .row-live { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+  .row-3, .row-4 { grid-template-columns: 1fr; }
+  .clock { display: none; }
+}
+
+/* ── 계기 수치 ────────────────────────────────────────────────── */
+.gauge-label {
+  font-family: var(--pb-label);
+  font-size: clamp(13px, 0.94vw, 18px);
+  letter-spacing: 0.06em; color: var(--pb-dim);
+}
+.gauge-value {
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: var(--pb-hero);
+  line-height: 0.95;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -1px;
-  color: var(--accent-orange);
 }
-.plc-empty .plc-model { color: rgba(255,255,255,0.4); font-size: 1.5rem; }
-.plc-sep { color: rgba(255,255,255,0.45); font-weight: 400; margin: 0 6px; }
-.plc-camera { color: var(--siemens-teal); }
-.plc-fresh.cam { background: rgba(0,153,153,0.18); color: #5dd7d7; border-color: rgba(0,153,153,0.5); }
-.plc-fresh.cam.stale { background: rgba(245,166,35,0.2); color: #fcc56b; border-color: rgba(245,166,35,0.5); }
-.plc-meta {
-  margin-top: 10px;
-  font-size: 0.85rem;
-  color: rgba(255,255,255,0.6);
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+.gauge-value.mid { font-size: var(--pb-big); font-weight: 500; }
+.gauge-unit {
+  font-family: var(--pb-display); font-weight: 500;
+  font-size: clamp(16px, 1.25vw, 24px);
+  color: var(--pb-dim);
+}
+.gauge-value.ok { color: var(--pb-ok); }
+.gauge-value.warn { color: var(--pb-warn); }
+.gauge-value.bad { color: var(--pb-bad); }
+.gauge-value.ice { color: var(--pb-ice); }
+.gauge-value.idle { color: var(--pb-dim); font-size: var(--pb-big); }
+
+/* 정합 패널 — PLC = CAM */
+.match-row {
+  display: flex; align-items: center;
+  gap: clamp(12px, 1.35vw, 26px);
+  padding-top: 6px; flex-wrap: wrap;
+}
+.match-eq {
+  font-size: clamp(24px, 2.08vw, 40px);
+  line-height: 1;
+  color: var(--pb-ok);
+}
+.match-eq.bad { color: var(--pb-bad); }
+.match-side { min-width: 0; }
+.match-aside {
+  margin-left: auto; text-align: right;
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); color: var(--pb-muted);
+  line-height: 1.7;
+}
+
+/* KPI 타일 (도막 4연) */
+.tile { display: flex; flex-direction: column; gap: 6px; }
+.tile-sub {
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); color: var(--pb-dim);
+}
+
+/* 진행 막대 */
+.bar-track {
+  height: 8px; background: rgba(230, 237, 244, 0.1);
+  border: 1px solid var(--pb-divider-soft);
+}
+.bar-fill { height: 100%; background: var(--pb-ice); }
+.bar-fill.warn { background: var(--pb-warn); }
+.bar-fill.bad { background: var(--pb-bad); }
+
+/* 모델별 순위 막대 */
+.rank-row {
+  display: grid; grid-template-columns: 3.4em 1fr 3em;
+  align-items: center; gap: 10px;
+  padding: 6px 0;
+}
+.rank-label {
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: clamp(15px, 1.04vw, 20px);
+  color: var(--pb-soft);
+}
+.rank-val {
+  text-align: right;
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: clamp(15px, 1.04vw, 20px);
   font-variant-numeric: tabular-nums;
 }
-.plc-meta .dot { color: rgba(255,255,255,0.3); }
-.plc-fresh {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: rgba(0,166,81,0.2);
-  color: #5fcf91;
-  border: 1px solid rgba(0,166,81,0.5);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-.plc-fresh.stale { background: rgba(245,166,35,0.2); color: #fcc56b; border-color: rgba(245,166,35,0.5); }
 
-.kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 8px; }
-.kpi {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  padding: 16px;
-  box-shadow: var(--shadow-sm);
+/* 일별 막대 스트립 (실적 탭) */
+.daybars {
+  display: grid; gap: clamp(8px, 0.83vw, 16px);
+  grid-auto-flow: column; grid-auto-columns: 1fr;
+  align-items: end;
+  min-height: clamp(160px, 14vw, 250px);
+  padding-top: 10px;
+  overflow-x: auto;
 }
-.kpi-label { font-size: 0.8rem; color: var(--text-tertiary); }
-.kpi-value { font-size: 1.75rem; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; color: var(--text-primary); }
-.kpi-warn { border-color: #fecaca; background: #fff5f5; }
-.kpi-warn .kpi-value { color: var(--status-stopped); }
-
-.chart {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  padding: 12px;
-  box-shadow: var(--shadow-sm);
+.daybar { display: flex; flex-direction: column; gap: 8px; height: 100%; min-width: 44px; }
+.daybar-val {
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: clamp(16px, 1.25vw, 24px);
+  text-align: center; font-variant-numeric: tabular-nums;
+}
+.daybar-val .sub { font-size: 0.62em; color: var(--pb-dim); font-weight: 500; }
+.daybar-col {
+  flex: 1; display: flex; align-items: flex-end; justify-content: center;
+  gap: 4px; min-height: 0;
+}
+.daybar-fill {
+  width: 100%; max-width: 46px;
+  background: var(--pb-ice);
+  border: 1px solid var(--pb-ice);
+  min-height: 2px;
+}
+.daybar-fill.miss { background: var(--pb-bad); border-color: var(--pb-bad); max-width: 14px; }
+.daybar-label {
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); color: var(--pb-dim);
+  text-align: center; white-space: nowrap;
 }
 
+.legend { display: flex; gap: 16px; font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-muted); }
+.legend i { display: inline-block; width: 16px; height: 10px; margin-right: 6px; vertical-align: middle; }
+.legend i.ice { background: var(--pb-ice); }
+.legend i.bad { background: var(--pb-bad); }
+
+/* 주간 요약 4연 */
+.summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--pb-gap); }
+.summary-cell { display: flex; flex-direction: column; gap: 2px; }
+.summary-cell .gauge-value { font-size: var(--pb-big); font-weight: 600; }
+
+/* 데이터가 아직 없을 때 차트 자리를 채우는 안내 */
+.chart-empty {
+  display: grid; place-items: center;
+  min-height: 160px;
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); color: var(--pb-dim);
+  border: 1px dashed var(--pb-divider-soft);
+}
+
+/* ── 표 ───────────────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; }
 table {
   width: 100%; border-collapse: collapse;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
+  font-size: clamp(13px, 0.94vw, 17px);
+  font-variant-numeric: tabular-nums;
 }
-th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border-light); font-variant-numeric: tabular-nums; }
-th { background: var(--bg-tertiary); font-size: 0.78rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
-tr:last-child td { border-bottom: none; }
-td.warn { color: var(--status-stopped); font-weight: 600; }
+th {
+  text-align: left;
+  font-family: var(--pb-label); font-weight: 400;
+  font-size: var(--pb-meta);
+  letter-spacing: 0.04em;
+  color: var(--pb-dim);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--pb-divider);
+  white-space: nowrap;
+}
+td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--pb-divider-soft);
+  color: var(--pb-soft);
+  white-space: nowrap;
+}
+tbody tr:hover { background: var(--pb-fill); }
+td.num { text-align: right; }
+td .model {
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: 1.15em; color: var(--pb-text);
+}
+.empty-row { color: var(--pb-dim); font-family: var(--pb-label); }
 
-.range-controls {
-  display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
-}
-.range-controls label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-secondary); }
-.range-controls input[type=date] { padding: 6px 10px; border: 1px solid var(--border-medium); border-radius: 6px; }
-.presets { display: flex; gap: 4px; }
-.presets button, .range-controls > button {
-  padding: 6px 12px; border: 1px solid var(--border-medium); background: var(--bg-primary);
-  border-radius: 6px; cursor: pointer; font-size: 0.85rem;
-}
-.presets button.on { background: var(--siemens-blue); color: var(--text-white); border-color: var(--siemens-blue); }
-
-.err { color: var(--status-stopped); }
-
-.sender {
-  display: flex; flex-wrap: wrap; gap: 12px; align-items: end;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  padding: 14px;
-  box-shadow: var(--shadow-sm);
-}
-.sender label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; color: var(--text-secondary); }
-.sender input { padding: 6px 10px; border: 1px solid var(--border-medium); border-radius: 6px; font-size: 0.9rem; }
-.sender button {
-  padding: 8px 16px; background: var(--siemens-blue); color: var(--text-white);
-  border: 0; border-radius: 6px; cursor: pointer; font-weight: 600;
-}
-.sender button:disabled { opacity: 0.5; cursor: not-allowed; }
-.hint { color: var(--text-tertiary); font-size: 0.85rem; }
-
-footer {
-  padding: 14px 24px;
-  color: var(--text-tertiary);
-  font-size: 0.78rem;
-  text-align: center;
-  border-top: 1px solid var(--border-light);
-  background: var(--bg-primary);
-}
-
-/* ── live camera ─────────────────────────────────────────────── */
-.cam-sub { color: var(--text-tertiary); font-size: 0.9rem; margin: 4px 0 16px; }
-.cam-card {
-  background: linear-gradient(135deg, #1b1b1b 0%, #2d3748 100%);
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: var(--shadow-md);
-  position: relative;
-  overflow: hidden;
-}
-.cam-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--siemens-teal), var(--accent-orange));
-}
+/* ── 카메라 ───────────────────────────────────────────────────── */
+.cam-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .cam-frame {
   position: relative;
-  width: 100%;
   aspect-ratio: 16 / 9;
-  background: #000;
-  border-radius: 8px;
+  background: var(--pb-bg-deep);
+  border: 1px solid var(--pb-divider);
   overflow: hidden;
 }
-.cam-iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  display: block;
-}
-.cam-meta {
-  margin-top: 12px;
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  font-size: 0.85rem;
-  color: rgba(255,255,255,0.65);
-}
-.cam-meta a { color: #5dd7d7; text-decoration: none; }
-.cam-meta a:hover { text-decoration: underline; }
-.cam-meta .dot { color: rgba(255,255,255,0.3); }
-.cam-live {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: rgba(208,2,27,0.18);
-  color: #ff6b7a;
-  border: 1px solid rgba(208,2,27,0.5);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-.cam-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: #ff3b30;
-  box-shadow: 0 0 0 0 rgba(255,59,48,0.6);
-  animation: cam-pulse 1.6s infinite;
-}
-@keyframes cam-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(255,59,48,0.6); }
-  70%  { box-shadow: 0 0 0 7px rgba(255,59,48,0); }
-  100% { box-shadow: 0 0 0 0 rgba(255,59,48,0); }
-}
-.cam-note { margin-top: 14px; color: var(--text-tertiary); font-size: 0.82rem; line-height: 1.6; }
-
-/* ═══════════════════════════════════════════════════════════════
-   3D depth system — dashboard as a bank of industrial control panels
-   Layered onto the rules above via source order (later wins).
-   ═══════════════════════════════════════════════════════════════ */
-:root {
-  --elev-1:
-    0 1px 1px rgba(16,24,40,.05),
-    0 3px 6px rgba(16,24,40,.06),
-    0 10px 20px -6px rgba(16,24,40,.12),
-    inset 0 1px 0 rgba(255,255,255,.95),
-    inset 0 -1px 0 rgba(16,24,40,.05);
-  --elev-2:
-    0 2px 3px rgba(16,24,40,.06),
-    0 10px 16px rgba(16,24,40,.10),
-    0 24px 42px -10px rgba(16,24,40,.22),
-    inset 0 1px 0 rgba(255,255,255,.95);
-  --elev-dark:
-    0 2px 4px rgba(0,0,0,.30),
-    0 16px 32px -8px rgba(0,0,0,.48),
-    inset 0 1px 0 rgba(255,255,255,.14),
-    inset 0 -2px 6px rgba(0,0,0,.35);
-  --ease-3d: cubic-bezier(.2,.7,.2,1);
-}
-
-/* machined-metal working surface so light panels read as raised */
-body {
-  background:
-    radial-gradient(1200px 700px at 15% -10%, #fbfcfe 0%, rgba(251,252,254,0) 55%),
-    linear-gradient(180deg, #eef1f5 0%, #e3e7ee 100%) fixed;
-}
-body::before { /* faint engineering grid etched into the surface */
-  content: '';
-  position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background-image:
-    linear-gradient(rgba(27,27,27,.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(27,27,27,.04) 1px, transparent 1px);
-  background-size: 44px 44px;
-  -webkit-mask-image: radial-gradient(circle at 50% 26%, #000 0%, transparent 78%);
-  mask-image: radial-gradient(circle at 50% 26%, #000 0%, transparent 78%);
-}
-.shell { position: relative; z-index: 1; }
-.header { box-shadow: 0 6px 18px rgba(16,24,40,.28); }
-
-/* perspective on the board so hover tilts read as real depth */
-main { perspective: 1600px; perspective-origin: 50% -8%; }
-
-/* flat panels: seated elevation */
-.kpi, .chart, table, .sender {
-  box-shadow: var(--elev-1);
-  transition: transform .28s var(--ease-3d), box-shadow .28s var(--ease-3d);
-  will-change: transform;
-}
-/* signature tactile lift — reserved for the non-interactive KPI tiles */
-.kpi:hover { transform: translateY(-5px) rotateX(3.5deg); box-shadow: var(--elev-2); }
-.kpi-value { text-shadow: 0 1px 0 rgba(255,255,255,.85); }
-
-/* hero panels: deep extrusion + a slight console tilt on hover */
-.plc-card, .cam-card {
-  box-shadow: var(--elev-dark);
-  transition: transform .3s var(--ease-3d), box-shadow .3s var(--ease-3d);
-}
-.plc-card { border-radius: 16px; }
-.plc-card:hover, .cam-card:hover {
-  transform: translateY(-4px) rotateX(4deg);
-  box-shadow:
-    0 4px 8px rgba(0,0,0,.30),
-    0 28px 54px -10px rgba(0,0,0,.55),
-    inset 0 1px 0 rgba(255,255,255,.16),
-    inset 0 -2px 6px rgba(0,0,0,.4);
-}
-.plc-model { text-shadow: 0 2px 0 rgba(0,0,0,.45), 0 5px 16px rgba(232,69,29,.35); }
-
-/* pressable 3D nav buttons */
-.nav-btn {
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 2px 4px rgba(0,0,0,.3);
-  transition: transform .12s var(--ease-3d), background .15s, box-shadow .12s;
-}
-.nav-btn:hover { transform: translateY(-1px); }
-.nav-btn:active { transform: translateY(1px); box-shadow: inset 0 2px 5px rgba(0,0,0,.45); }
-.nav-btn.active { box-shadow: inset 0 2px 5px rgba(0,0,0,.4); }
-
-/* ── Today: main column + live rail (~1/4) ─────────────────────── */
-.today-grid {
-  display: grid;
-  /* live rail widened (~2x video) — main column reflows to fit */
-  grid-template-columns: minmax(0, 1fr) clamp(440px, 40%, 640px);
-  gap: 22px;
-  align-items: start;
-  margin-top: 8px;
-}
-.today-main { min-width: 0; }
-.today-main h2 { margin-top: 24px; }
-.today-side {
-  position: sticky; top: 92px;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.side-head { display: flex; align-items: baseline; justify-content: space-between; }
-.side-title {
-  font-size: .8rem; font-weight: 700; letter-spacing: .5px;
-  text-transform: uppercase; color: var(--text-secondary);
-}
-.side-link { font-size: .78rem; color: var(--siemens-blue); text-decoration: none; }
-.side-link:hover { text-decoration: underline; }
-
-/* compact camera card for the rail */
-.cam-compact { padding: 10px; border-radius: 12px; }
-.cam-compact .cam-meta { margin-top: 8px; font-size: .78rem; justify-content: space-between; }
-
-/* LIVE badge overlaid on the video frame */
+.cam-iframe { width: 100%; height: 100%; border: 0; display: block; }
 .cam-badge {
   position: absolute; top: 10px; left: 10px; z-index: 2;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 10px;
+  background: rgba(29, 45, 61, 0.82);
+  border: 1px solid rgba(148, 188, 227, 0.5);
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); letter-spacing: 0.12em; color: var(--pb-soft);
+}
+.cam-dot { width: 8px; height: 8px; background: var(--pb-bad); animation: pb-pulse 1.6s infinite; }
+.cam-meta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); color: var(--pb-dim);
+}
+.cam-meta a { color: var(--pb-ice); text-decoration: none; }
+.cam-meta a:hover { text-decoration: underline; }
+.cam-meta .sep { color: var(--pb-divider); }
+
+/* ── 폼 / 버튼 ────────────────────────────────────────────────── */
+button, .btn {
+  font-family: var(--pb-label);
+  font-size: clamp(13px, 0.94vw, 17px);
+  letter-spacing: 0.08em;
+  padding: 7px 16px;
+  color: var(--pb-soft);
+  background: transparent;
+  border: 1px solid var(--pb-divider);
+  border-radius: 0;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--pb-ice); color: var(--pb-text); }
+button.on {
+  background: var(--pb-ice); color: #12202c; border-color: var(--pb-ice);
+}
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+input {
+  font-family: var(--pb-body);
+  font-size: clamp(13px, 0.94vw, 16px);
+  padding: 6px 10px;
+  color: var(--pb-text);
+  background: rgba(230, 237, 244, 0.06);
+  border: 1px solid var(--pb-divider);
+  border-radius: 0;
+  caret-color: var(--pb-ice);
+}
+input:focus { outline: none; border-color: var(--pb-ice); }
+input[type='date'] { color-scheme: dark; }
+
+.controls {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.controls label {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 9px; border-radius: 999px;
-  background: rgba(208,2,27,.85); color: #fff;
-  font-size: .68rem; font-weight: 800; letter-spacing: .6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-muted);
+}
+.presets { display: flex; gap: 4px; }
+
+.sender {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: end;
+}
+.sender label {
+  display: flex; flex-direction: column; gap: 5px;
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-muted);
 }
 
-@media (max-width: 1280px) {
-  .today-grid { grid-template-columns: 1fr; }
-  .today-side { position: static; order: -1; } /* live on top when stacked */
+:focus-visible { outline: 2px solid var(--pb-ice); outline-offset: 2px; }
+::selection { background: rgba(148, 188, 227, 0.3); }
+
+/* ── 상태 텍스트 ──────────────────────────────────────────────── */
+.err { color: var(--pb-bad); font-family: var(--pb-label); }
+.hint { color: var(--pb-dim); font-family: var(--pb-label); font-size: var(--pb-meta); margin: 0; }
+.warn { color: var(--pb-warn); }
+.bad { color: var(--pb-bad); }
+.ok { color: var(--pb-ok); }
+
+/* ── 차트 (recharts) ──────────────────────────────────────────── */
+.chart { width: 100%; }
+.recharts-cartesian-axis-tick-value {
+  font-family: var(--pb-label);
+  font-size: 13px;
+  fill: var(--pb-dim);
+}
+.recharts-legend-item-text {
+  font-family: var(--pb-label) !important;
+  color: var(--pb-muted) !important;
+  font-size: 13px;
+}
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--pb-bg-deep) !important;
+  border: 1px solid var(--pb-divider) !important;
+  border-radius: 0 !important;
+  font-family: var(--pb-label) !important;
+  color: var(--pb-text) !important;
+}
+.recharts-tooltip-label { color: var(--pb-muted) !important; }
+
+/* ── 푸터 ─────────────────────────────────────────────────────── */
+footer {
+  display: flex; gap: 16px; justify-content: space-between; flex-wrap: wrap;
+  padding: 14px var(--pb-pad-x);
+  border-top: 1px solid var(--pb-divider);
+  font-family: var(--pb-label);
+  font-size: var(--pb-meta); color: var(--pb-dim);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kpi, .chart, table, .sender, .plc-card, .cam-card, .nav-btn { transition: none; }
-  .kpi:hover, .plc-card:hover, .cam-card:hover,
-  .nav-btn:hover, .nav-btn:active { transform: none; }
+  .live-dot, .cam-dot { animation: none; }
 }
-
-/* ── Today rail summary panel ─────────────────────────────────── */
-.side-panel {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  padding: 14px 16px;
-  box-shadow: var(--elev-1);
-}
-.side-panel-head {
-  font-size: .8rem; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
-  color: var(--text-secondary); margin-bottom: 10px;
-}
-.side-stat {
-  display: flex; justify-content: space-between; align-items: baseline;
-  padding: 6px 0; border-bottom: 1px dashed var(--border-light);
-  font-size: .9rem; color: var(--text-secondary);
-}
-.side-stat b { font-size: 1.15rem; color: var(--text-primary); font-variant-numeric: tabular-nums; }
-.side-stat .warn, .side-stat b.warn { color: var(--status-stopped); }
-.side-sub {
-  margin: 14px 0 8px; font-size: .72rem; font-weight: 700; letter-spacing: .5px;
-  text-transform: uppercase; color: var(--text-tertiary);
-}
-.side-bar-row { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
-.side-bar-label {
-  width: 22px; text-align: center; font-weight: 700; font-size: .8rem;
-  color: var(--text-secondary); font-variant-numeric: tabular-nums;
-}
-.side-bar-track {
-  display: block; flex: 1; height: 8px; border-radius: 999px;
-  background: var(--bg-tertiary); overflow: hidden;
-  box-shadow: inset 0 1px 2px rgba(16,24,40,.12);
-}
-.side-bar-fill {
-  display: block; height: 100%; border-radius: 999px;
-  background: linear-gradient(90deg, var(--siemens-blue), var(--siemens-teal));
-}
-.side-bar-fill.warn { background: linear-gradient(90deg, var(--accent-orange), #f0a03c); }
-.side-bar-val {
-  width: 24px; text-align: right; font-size: .8rem; font-variant-numeric: tabular-nums;
-  color: var(--text-primary); font-weight: 600;
-}
-.side-empty { color: var(--text-tertiary); font-size: .85rem; padding: 4px 0; }
-
-/* ── modern header (robot & address removed) ──────────────────── */
-.header {
-  background: linear-gradient(180deg, #212228 0%, #15161a 100%);
-  border-bottom: 1px solid rgba(255,255,255,.08);
-  box-shadow: 0 8px 24px rgba(16,24,40,.30);
-}
-.header-top-bar { height: 3px; opacity: .9; }
-.header-content { padding: 16px 28px; }
-
-.brand { display: flex; align-items: center; gap: 14px; }
-.brand-bar {
-  width: 4px; height: 30px; border-radius: 3px; flex: none;
-  background: linear-gradient(180deg, var(--siemens-teal) 0%, var(--accent-orange) 100%);
-  box-shadow: 0 0 12px rgba(0,153,153,.45);
-}
-.brand-title { display: flex; align-items: center; gap: 12px; }
-.brand-title strong {
-  font-size: 1.4rem; font-weight: 800; letter-spacing: -.4px; color: #fff;
-}
-.brand-title .proc {
-  background: rgba(255,255,255,.06);
-  border: 1px solid rgba(255,255,255,.16);
-  color: rgba(255,255,255,.72);
-  font-size: .66rem; font-weight: 600; letter-spacing: 1.5px;
-  padding: 3px 9px; border-radius: 6px; text-transform: uppercase;
-}
-
-/* modern ghost-pill nav */
-.nav-btn {
-  background: rgba(255,255,255,.05);
-  border: 1px solid rgba(255,255,255,.10);
-  border-radius: 8px; font-weight: 600;
-  box-shadow: none;
-}
-.nav-btn:hover {
-  background: rgba(255,255,255,.12);
-  border-color: rgba(255,255,255,.22);
-  transform: translateY(-1px);
-}
-.nav-btn.active {
-  background: linear-gradient(180deg, var(--siemens-blue) 0%, #005699 100%);
-  border-color: transparent;
-  box-shadow: 0 4px 14px rgba(0,102,179,.4);
-}
-.live-badge, .weather { border-radius: 8px; }

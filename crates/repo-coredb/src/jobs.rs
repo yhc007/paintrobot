@@ -108,7 +108,102 @@ impl<T: HttpTransport> CoreDbClient<T> {
         rows.iter().map(decode_job_row).collect()
     }
 
-    /// Same scan, but decoded into the slim AggRow that `paintrobot-domain::aggregate` consumes.
+    /// Aggregate rows for a whole date range in a single query.
+    ///
+    /// CoreDB scans the full `jobs` table for every statement regardless of the
+    /// `work_date` predicate, so one ranged read costs the same as one single-day
+    /// read — issuing N per-day queries multiplied that scan by N. Callers bucket
+    /// the returned rows by their `work_date`.
+    pub async fn agg_rows_for_range(
+        &self,
+        from: &str,
+        to: &str,
+        limit: u32,
+    ) -> Result<Vec<(String, AggRow)>, RepoError> {
+        check_identifier(from)?;
+        check_identifier(to)?;
+        let cql = format!(
+            "SELECT work_date, plc_model_no, camera_model_no, match_status FROM {ks}.jobs \
+             WHERE work_date>={f} AND work_date<={t} LIMIT {n}",
+            ks = self.keyspace,
+            f = quote_text(from),
+            t = quote_text(to),
+            n = limit,
+        );
+        let rows = self.execute(&cql).await?;
+        rows.iter()
+            .map(|row| {
+                let cols = &row.columns;
+                let work_date = decode_text(
+                    cols.get("work_date")
+                        .ok_or_else(|| RepoError::Decode("work_date missing".into()))?,
+                )?;
+                let plc = decode_text_opt(
+                    cols.get("plc_model_no")
+                        .ok_or_else(|| RepoError::Decode("plc_model_no missing".into()))?,
+                )?;
+                let cam = decode_text_opt(
+                    cols.get("camera_model_no")
+                        .ok_or_else(|| RepoError::Decode("camera_model_no missing".into()))?,
+                )?;
+                let status = decode_text(
+                    cols.get("match_status")
+                        .ok_or_else(|| RepoError::Decode("match_status missing".into()))?,
+                )?;
+                let model_no = plc
+                    .filter(|s| !s.is_empty())
+                    .or(cam.filter(|s| !s.is_empty()))
+                    .unwrap_or_else(|| "(unknown)".to_string());
+                Ok((
+                    work_date,
+                    AggRow {
+                        model_no,
+                        match_status: status,
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    /// Earliest and latest `work_date` that carry at least one counted job.
+    ///
+    /// `plc_only` rows are skipped here for the same reason `domain::aggregate`
+    /// skips them — a day of pure PLC chatter shows 0 on the dashboard, so it
+    /// must not be offered as a day that "has data".
+    pub async fn job_date_bounds(&self, limit: u32) -> Result<Option<(String, String)>, RepoError> {
+        let cql = format!(
+            "SELECT work_date, match_status FROM {ks}.jobs LIMIT {n}",
+            ks = self.keyspace,
+            n = limit,
+        );
+        let rows = self.execute(&cql).await?;
+        let mut lo: Option<String> = None;
+        let mut hi: Option<String> = None;
+        for row in &rows {
+            let cols = &row.columns;
+            let status = decode_text(
+                cols.get("match_status")
+                    .ok_or_else(|| RepoError::Decode("match_status missing".into()))?,
+            )?;
+            if status == "plc_only" {
+                continue;
+            }
+            let d = decode_text(
+                cols.get("work_date")
+                    .ok_or_else(|| RepoError::Decode("work_date missing".into()))?,
+            )?;
+            if lo.as_ref().is_none_or(|c| d < *c) {
+                lo = Some(d.clone());
+            }
+            if hi.as_ref().is_none_or(|c| d > *c) {
+                hi = Some(d);
+            }
+        }
+        Ok(lo.zip(hi))
+    }
+
+    /// Same scan as `scan_jobs_for_date`, but decoded into the slim AggRow that
+    /// `paintrobot-domain::aggregate` consumes.
     pub async fn agg_rows_for_date(
         &self,
         work_date: &str,

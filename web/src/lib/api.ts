@@ -14,6 +14,12 @@ export type DailyStats = {
   models: ModelCount[];
 };
 
+/// 집계된 작업이 실제로 존재하는 첫/마지막 날짜. 둘 다 null이면 데이터가 하나도 없다.
+export type StatsBounds = {
+  first_date: string | null;
+  last_date: string | null;
+};
+
 export type WeatherCurrent = {
   location_name: string;
   lat: number;
@@ -69,6 +75,7 @@ export const api = {
   daily: (date: string) => getJson<DailyStats>(`/api/v1/stats/daily?date=${date}`),
   range: (from: string, to: string) =>
     getJson<DailyStats[]>(`/api/v1/stats/range?from=${from}&to=${to}&group_by=day`),
+  statsBounds: () => getJson<StatsBounds>('/api/v1/stats/bounds'),
   weather: () => getJson<WeatherCurrent>('/api/v1/weather/current'),
   plcCurrent: () => getJson<PlcCurrent>('/api/v1/plc/current'),
   coatingsToday: () => getJson<CoatingsToday>('/api/v1/coatings/today'),

@@ -36,6 +36,7 @@
 | GET  | `/api/v1/stats/today` | ❌ | 오늘 모델별 카운트 |
 | GET  | `/api/v1/stats/daily?date=` | ❌ | 특정일 통계 |
 | GET  | `/api/v1/stats/range?from=&to=&group_by=` | ❌ | 기간 통계 (`day`/`model`) |
+| GET  | `/api/v1/stats/bounds` | ❌ | 집계 데이터가 존재하는 최초/최종 날짜 |
 | GET  | `/api/v1/jobs?from=&to=&model=&status=&page=` | ❌ | 작업 상세 목록 |
 | GET  | `/api/v1/jobs/export.csv?...` | ❌ | CSV 다운로드 |
 | GET  | `/api/v1/coatings/today` | ❌ | 오늘 도막 측정 시계열 |
@@ -314,6 +315,24 @@ curl -X POST http://192.168.10.30:18080/api/v1/plc/recipe \
 - `group_by=day`: `DailyStats` 배열 (날짜별)
 - `group_by=model`: `[{model_no, job_count, mismatch_count}, ...]` (전 기간 합계)
 - 최대 366일
+
+### `/api/v1/stats/bounds`
+집계에 잡히는 작업이 실제로 존재하는 **최초/최종 `work_date`**.
+
+대시보드가 조회 구간에서 빈 결과를 받았을 때 호출해, 빈 차트를 보여주는 대신
+데이터가 있는 구간으로 범위를 옮기는 용도입니다.
+
+응답:
+```json
+{ "first_date": "2026-04-24", "last_date": "2026-08-27" }
+```
+
+- `match_status`가 `plc_only`인 행은 제외됩니다. 대시보드 집계에서도 빠지는 값이라,
+  PLC 신호만 있는 날은 "데이터가 있는 날"로 안내하면 안 되기 때문입니다.
+- 집계 대상이 하나도 없으면 두 필드 모두 `null`:
+  ```json
+  { "first_date": null, "last_date": null }
+  ```
 
 ### `/api/v1/jobs?from=&to=&model=&status=&page=&per_page=`
 작업 상세 목록 (페이징).

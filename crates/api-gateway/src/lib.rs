@@ -42,6 +42,7 @@ async fn main(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
         ("GET", "/api/v1/stats/today") => Ok(stats_today().await),
         ("GET", "/api/v1/stats/daily") => Ok(stats_daily(&query).await),
         ("GET", "/api/v1/stats/range") => Ok(stats_range(&query).await),
+        ("GET", "/api/v1/stats/bounds") => Ok(stats_bounds().await),
         ("GET", "/api/v1/jobs") => Ok(list_jobs(&query).await),
         ("GET", "/api/v1/jobs/export.csv") => Ok(export_jobs_csv(&query).await),
         ("GET", "/api/v1/weather/current") => Ok(weather_current().await),
@@ -636,19 +637,48 @@ async fn stats_range(query: &str) -> Response<Body> {
         return json_error(StatusCode::BAD_REQUEST, "range exceeds 366 days");
     }
 
+    // One ranged read, not one per day: CoreDB scans the whole `jobs` table for
+    // every statement, so N per-day queries cost N full scans (a 7-day window
+    // took ~24s). Bucket the rows here instead.
+    use std::collections::BTreeMap;
     let c = client();
-    let mut daily = Vec::with_capacity(dates.len());
-    for d in &dates {
-        match c.agg_rows_for_date(d, 100_000).await {
-            Ok(rows) => daily.push(domain::aggregate(d.clone(), rows)),
-            Err(e) => return repo_error_response(&e),
-        }
+    let rows = match c.agg_rows_for_range(&from, &to, 1_000_000).await {
+        Ok(r) => r,
+        Err(e) => return repo_error_response(&e),
+    };
+    let mut by_date: BTreeMap<String, Vec<domain::AggRow>> = BTreeMap::new();
+    for (d, row) in rows {
+        by_date.entry(d).or_default().push(row);
     }
+    // Every requested day is reported, including the ones CoreDB had nothing for.
+    let daily: Vec<DailyStats> = dates
+        .iter()
+        .map(|d| domain::aggregate(d.clone(), by_date.remove(d).unwrap_or_default()))
+        .collect();
 
     match group_by.as_str() {
         "day" => json_response(StatusCode::OK, &daily),
         "model" => json_response(StatusCode::OK, &sum_by_model(&daily)),
         _ => json_error(StatusCode::BAD_REQUEST, "group_by must be day|model"),
+    }
+}
+
+/// First and last work_date that actually carry counted jobs.
+///
+/// The dashboard calls this when a chosen window came back empty, so it can move
+/// the range onto the data instead of showing a blank chart.
+async fn stats_bounds() -> Response<Body> {
+    let c = client();
+    match c.job_date_bounds(1_000_000).await {
+        Ok(Some((first, last))) => json_response(
+            StatusCode::OK,
+            &serde_json::json!({ "first_date": first, "last_date": last }),
+        ),
+        Ok(None) => json_response(
+            StatusCode::OK,
+            &serde_json::json!({ "first_date": null, "last_date": null }),
+        ),
+        Err(e) => repo_error_response(&e),
     }
 }
 

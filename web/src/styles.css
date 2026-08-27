@@ -365,6 +365,69 @@ main {
   min-height: 2px;
 }
 .daybar-fill.miss { background: var(--pb-bad); border-color: var(--pb-bad); max-width: 14px; }
+
+/* 모델별 스택 — column-reverse라 DOM 첫 자식이 바닥에 온다 (팔레트 1번 슬롯). */
+.daybar-stack {
+  width: 100%; max-width: 46px;
+  display: flex; flex-direction: column-reverse;
+  min-height: 2px;
+}
+.daybar-seg {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 3px;
+  cursor: crosshair;
+}
+/* 층 사이 2px 서피스 간격. 인접한 두 색이 서로 번져 한 덩어리로 보이는 걸
+   막는다 — 8색 팔레트는 인접 쌍만 분리를 보장하므로 이 간격이 필요하다.
+   border-box라 막대 총 높이는 변하지 않는다. */
+.daybar-seg + .daybar-seg { border-bottom: 2px solid var(--pb-bg); }
+.daybar-seg:hover { filter: brightness(1.2); }
+
+/* 모델 색상 범례 — 8종을 넘기면 헤더 슬롯에 안 들어가 차트 아래로 내린다. */
+.series-legend {
+  display: flex; flex-wrap: wrap; gap: 8px 18px;
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid var(--pb-divider-soft);
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-muted);
+}
+.series-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.series-legend i { width: 16px; height: 10px; flex: none; }
+
+/* 표에서도 차트와 같은 색을 달아 둔다 — 색 대비가 약한 조합이 있어도
+   숫자가 붙은 표가 항상 확인용으로 남는다. */
+.model .swatch {
+  display: inline-block; width: 10px; height: 10px;
+  margin-right: 8px; vertical-align: baseline; flex: none;
+}
+
+/* 막대 호버 툴팁 */
+.chart-tip {
+  position: fixed; z-index: 40;
+  transform: translate(-50%, calc(-100% - 14px));
+  pointer-events: none;
+  background: var(--pb-bg-deep);
+  border: 1px solid var(--pb-divider);
+  padding: 8px 12px;
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-text);
+  white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.chart-tip.below { transform: translate(-50%, 18px); }
+.chart-tip-date { color: var(--pb-dim); font-size: 0.86em; margin-bottom: 4px; }
+.chart-tip-row { display: flex; align-items: center; gap: 8px; }
+.chart-tip-row i { width: 12px; height: 12px; flex: none; }
+.chart-tip-name { color: var(--pb-soft); }
+.chart-tip-num {
+  margin-left: 14px;
+  font-family: var(--pb-display); font-weight: 600;
+  font-variant-numeric: tabular-nums; font-size: 1.15em;
+}
+.chart-tip-share { color: var(--pb-dim); font-size: 0.86em; margin-top: 3px; }
+.chart-tip-folded {
+  color: var(--pb-dim); font-size: 0.8em; margin-top: 4px;
+  max-width: 220px; white-space: normal;
+}
 .daybar-label {
   font-family: var(--pb-label);
   font-size: var(--pb-meta); color: var(--pb-dim);

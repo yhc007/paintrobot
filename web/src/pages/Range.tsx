@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, DailyStats } from '../lib/api';
 import Blueprint from '../components/Blueprint';
+import { buildModelPalette, colorFor, OTHER_COLOR, OTHER_LABEL } from '../lib/palette';
+
+type Segment = { key: string; label: string; color: string; count: number; folded?: string[] };
+type Tip = { x: number; y: number; date: string; seg: Segment; share: number };
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -68,6 +72,50 @@ export default function Range() {
     setMovedTo(last);
   }, [noData, bounds.data, to, movedTo]);
   const maxJobs = Math.max(1, ...days.map(d => d.total_jobs));
+
+  const [tip, setTip] = useState<Tip | null>(null);
+
+  // 색 배정은 구간 전체를 보고 한 번만 한다. 날짜별로 따로 정하면 같은 모델이
+  // 날마다 다른 색으로 나온다.
+  const palette = useMemo(
+    () => buildModelPalette(days.flatMap(d => d.models)),
+    [days],
+  );
+
+  // 스택 순서도 구간 전체에서 고정한다 — 날짜마다 순서가 바뀌면 층을 눈으로
+  // 따라갈 수 없다. `기타`는 항상 맨 위.
+  const stackOrder = useMemo(() => Array.from(palette.colors.keys()), [palette]);
+
+  const segmentsFor = (day: DailyStats): Segment[] => {
+    const byModel = new Map(day.models.map(m => [m.model_no, m.job_count]));
+    const segs: Segment[] = [];
+    for (const model_no of stackOrder) {
+      const count = byModel.get(model_no) ?? 0;
+      if (count > 0) {
+        segs.push({ key: model_no, label: model_no, color: colorFor(palette, model_no), count });
+      }
+    }
+    const foldedHere = day.models.filter(m => m.job_count > 0 && !palette.colors.has(m.model_no));
+    if (foldedHere.length > 0) {
+      segs.push({
+        key: '__other__',
+        label: OTHER_LABEL,
+        color: OTHER_COLOR,
+        count: foldedHere.reduce((n, m) => n + m.job_count, 0),
+        folded: foldedHere.map(m => m.model_no),
+      });
+    }
+    return segs;
+  };
+
+  const legendItems: Segment[] = [
+    ...stackOrder.map(model_no => ({
+      key: model_no, label: model_no, color: colorFor(palette, model_no), count: 0,
+    })),
+    ...(palette.folded.length > 0
+      ? [{ key: '__other__', label: OTHER_LABEL, color: OTHER_COLOR, count: 0, folded: palette.folded }]
+      : []),
+  ];
 
   const totalByModel = useMemo(() => {
     const acc = new Map<string, { job_count: number; mismatch_count: number }>();
@@ -138,39 +186,69 @@ export default function Range() {
       {q.data && (
         <>
           <Blueprint
-            title="일별 생산 실적"
+            title="일별 생산 실적 · 모델별"
             right={
               <div className="legend">
-                <span><i className="ice" />생산</span>
                 <span><i className="bad" />불일치</span>
               </div>
             }
           >
             {days.length === 0 && <div className="hint">구간에 집계된 작업이 없습니다.</div>}
             {days.length > 0 && (
-              <div className="daybars">
-                {days.map(d => (
-                  <div className="daybar" key={d.work_date}>
-                    <div className="daybar-val">
-                      {d.total_jobs}
-                      {d.mismatch_jobs > 0 && <span className="sub"> / {d.mismatch_jobs}</span>}
-                    </div>
-                    <div className="daybar-col">
-                      <div
-                        className="daybar-fill"
-                        style={{ height: `${(d.total_jobs / maxJobs) * 100}%` }}
-                      />
-                      {d.mismatch_jobs > 0 && (
-                        <div
-                          className="daybar-fill miss"
-                          style={{ height: `${(d.mismatch_jobs / maxJobs) * 100}%` }}
-                        />
-                      )}
-                    </div>
-                    <div className="daybar-label">{d.work_date.slice(5)}</div>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="daybars" onMouseLeave={() => setTip(null)}>
+                  {days.map(d => {
+                    const segs = segmentsFor(d);
+                    const stackTotal = segs.reduce((n, sg) => n + sg.count, 0);
+                    return (
+                      <div className="daybar" key={d.work_date}>
+                        <div className="daybar-val">
+                          {d.total_jobs}
+                          {d.mismatch_jobs > 0 && <span className="sub"> / {d.mismatch_jobs}</span>}
+                        </div>
+                        <div className="daybar-col">
+                          <div
+                            className="daybar-stack"
+                            style={{ height: `${(d.total_jobs / maxJobs) * 100}%` }}
+                          >
+                            {segs.map(sg => (
+                              <div
+                                key={sg.key}
+                                className="daybar-seg"
+                                style={{
+                                  height: `${(sg.count / Math.max(1, stackTotal)) * 100}%`,
+                                  background: sg.color,
+                                }}
+                                onMouseMove={e => setTip({
+                                  x: e.clientX, y: e.clientY,
+                                  date: d.work_date, seg: sg,
+                                  share: stackTotal > 0 ? (sg.count / stackTotal) * 100 : 0,
+                                })}
+                                onMouseLeave={() => setTip(null)}
+                              />
+                            ))}
+                          </div>
+                          {d.mismatch_jobs > 0 && (
+                            <div
+                              className="daybar-fill miss"
+                              style={{ height: `${(d.mismatch_jobs / maxJobs) * 100}%` }}
+                            />
+                          )}
+                        </div>
+                        <div className="daybar-label">{d.work_date.slice(5)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="series-legend">
+                  {legendItems.map(it => (
+                    <span key={it.key} title={it.folded ? it.folded.join(', ') : undefined}>
+                      <i style={{ background: it.color }} />{it.label}
+                    </span>
+                  ))}
+                </div>
+              </>
             )}
           </Blueprint>
 
@@ -193,7 +271,12 @@ export default function Range() {
                     )}
                     {totalByModel.map(m => (
                       <tr key={m.model_no}>
-                        <td><span className="model">{m.model_no}</span></td>
+                        <td>
+                          <span className="model">
+                            <i className="swatch" style={{ background: colorFor(palette, m.model_no) }} />
+                            {m.model_no}
+                          </span>
+                        </td>
                         <td className="num">{m.job_count}</td>
                         <td className={`num${m.mismatch_count > 0 ? ' bad' : ''}`}>{m.mismatch_count}</td>
                         <td className="num">
@@ -237,6 +320,29 @@ export default function Range() {
             </Blueprint>
           </section>
         </>
+      )}
+
+      {tip && (
+        <div
+          className={`chart-tip${tip.y < 140 ? ' below' : ''}`}
+          style={{
+            // 오른쪽 끝 막대에서 툴팁이 화면 밖으로 잘리지 않게 물려둔다.
+            left: Math.min(Math.max(tip.x, 130), window.innerWidth - 130),
+            top: tip.y,
+          }}
+          role="tooltip"
+        >
+          <div className="chart-tip-date">{tip.date}</div>
+          <div className="chart-tip-row">
+            <i style={{ background: tip.seg.color }} />
+            <span className="chart-tip-name">{tip.seg.label}</span>
+            <span className="chart-tip-num">{tip.seg.count}</span>
+          </div>
+          <div className="chart-tip-share">구성비 {tip.share.toFixed(1)}%</div>
+          {tip.seg.folded && (
+            <div className="chart-tip-folded">{tip.seg.folded.join(', ')}</div>
+          )}
+        </div>
       )}
     </>
   );

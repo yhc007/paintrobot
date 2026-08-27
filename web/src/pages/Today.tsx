@@ -4,6 +4,7 @@ import { api, DailyStats, LiveFrame, PlcCurrent } from '../lib/api';
 import Blueprint from '../components/Blueprint';
 import PlcCard from '../components/PlcCard';
 import LivePanel from '../components/LivePanel';
+import { buildModelPalette, colorFor } from '../lib/palette';
 
 export default function Today() {
   const qc = useQueryClient();
@@ -47,6 +48,8 @@ export default function Today() {
   const s = stats.data;
   const cur: PlcCurrent | null | undefined = plc.data;
   const ranked = [...s.models].sort((a, b) => b.job_count - a.job_count);
+  // 실적 페이지와 같은 색. 배정이 모델번호에서 나오므로 두 화면이 자동으로 맞는다.
+  const palette = buildModelPalette(s.models);
   const maxCount = Math.max(1, ...ranked.map(m => m.job_count));
   const top = ranked[0];
   const missPct = s.total_jobs > 0 ? (s.mismatch_jobs / s.total_jobs) * 100 : 0;
@@ -119,9 +122,21 @@ export default function Today() {
               <span className="rank-label">{m.model_no}</span>
               <span className="bar-track">
                 <span
-                  className={`bar-fill${m.mismatch_count > 0 ? ' bad' : ''}`}
-                  style={{ width: `${(m.job_count / maxCount) * 100}%`, display: 'block' }}
-                />
+                  className="bar-fill"
+                  style={{
+                    width: `${(m.job_count / maxCount) * 100}%`,
+                    background: colorFor(palette, m.model_no),
+                  }}
+                >
+                  {/* 불일치는 막대 전체를 빨갛게 칠하지 않고 오른쪽 끝 구간으로만
+                      표시한다 — 그래야 모델 색이 살아남는다. */}
+                  {m.mismatch_count > 0 && (
+                    <span
+                      className="bar-miss"
+                      style={{ width: `${(m.mismatch_count / m.job_count) * 100}%` }}
+                    />
+                  )}
+                </span>
               </span>
               <span className="rank-val">{m.job_count}</span>
             </div>
@@ -151,7 +166,12 @@ export default function Today() {
                 const share = s.total_jobs > 0 ? (m.job_count / s.total_jobs) * 100 : 0;
                 return (
                   <tr key={m.model_no}>
-                    <td><span className="model">{m.model_no}</span></td>
+                    <td>
+                      <span className="model">
+                        <i className="swatch" style={{ background: colorFor(palette, m.model_no) }} />
+                        {m.model_no}
+                      </span>
+                    </td>
                     <td className="num">{m.job_count}</td>
                     <td className={`num${m.mismatch_count > 0 ? ' bad' : ''}`}>{m.mismatch_count}</td>
                     <td className="num">{rate.toFixed(1)}%</td>

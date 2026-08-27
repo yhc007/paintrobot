@@ -75,6 +75,12 @@ export default function Range() {
 
   const [tip, setTip] = useState<Tip | null>(null);
 
+  // 서버가 구간을 좁혀 돌려줄 수 있다 (상한 초과 시 보유 구간으로 당긴다).
+  // 실제로 집계된 구간은 응답의 work_date가 말해주므로 그쪽을 표시한다.
+  const effFrom = days[0]?.work_date ?? from;
+  const effTo = days[days.length - 1]?.work_date ?? to;
+  const narrowed = days.length > 0 && (effFrom !== from || effTo !== to);
+
   // 색 배정은 구간 전체를 보고 한 번만 한다. 날짜별로 따로 정하면 같은 모델이
   // 날마다 다른 색으로 나온다.
   const palette = useMemo(
@@ -145,7 +151,7 @@ export default function Range() {
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `paintrobot_${from}_${to}.csv`; a.click();
+    a.href = url; a.download = `paintrobot_${effFrom}_${effTo}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -153,7 +159,7 @@ export default function Range() {
     <>
       <div className="page-head">
         <h1 className="page-title">기간 실적</h1>
-        <span className="page-note">{from} → {to} · {days.length}일</span>
+        <span className="page-note">{effFrom} → {effTo} · {days.length}일</span>
       </div>
 
       <Blueprint title="조회 구간">
@@ -176,6 +182,11 @@ export default function Range() {
         <p className="hint">
           선택한 구간에 집계된 작업이 없어 데이터가 있는 최근 구간({from} → {to})으로 이동했습니다.
           {bounds.data?.first_date && ` 전체 보유 구간 ${bounds.data.first_date} → ${bounds.data.last_date}.`}
+        </p>
+      )}
+      {narrowed && (
+        <p className="hint">
+          요청한 구간({from} → {to})이 넓어 데이터가 있는 {effFrom} → {effTo} 구간만 집계했습니다.
         </p>
       )}
       {noData && bounds.isLoading && <p className="hint">데이터가 있는 구간을 찾는 중…</p>}

@@ -316,9 +316,16 @@ main {
   height: 8px; background: rgba(230, 237, 244, 0.1);
   border: 1px solid var(--pb-divider-soft);
 }
-.bar-fill { height: 100%; background: var(--pb-ice); }
+.bar-fill { position: relative; display: block; height: 100%; background: var(--pb-ice); }
 .bar-fill.warn { background: var(--pb-warn); }
 .bar-fill.bad { background: var(--pb-bad); }
+/* 막대 오른쪽 끝에 붙는 불일치 구간. 2px 서피스 간격으로 모델 색과 떼어 둔다. */
+.bar-miss {
+  position: absolute; right: 0; top: 0; height: 100%;
+  box-sizing: border-box;
+  background: var(--pb-bad);
+  border-left: 2px solid var(--pb-bg);
+}
 
 /* 모델별 순위 막대 */
 .rank-row {

@@ -628,20 +628,57 @@ async fn stats_range(query: &str) -> Response<Body> {
         return json_error(StatusCode::BAD_REQUEST, "missing to");
     };
     let group_by = query_param(query, "group_by").unwrap_or_else(|| "day".to_string());
+
+    let (Ok(mut f), Ok(mut t)) = (
+        NaiveDate::parse_from_str(&from, "%Y-%m-%d"),
+        NaiveDate::parse_from_str(&to, "%Y-%m-%d"),
+    ) else {
+        return json_error(StatusCode::BAD_REQUEST, "from/to must be YYYY-MM-DD");
+    };
+    if t < f {
+        std::mem::swap(&mut f, &mut t);
+    }
+
+    let c = client();
+
+    // 구간이 상한을 넘어도 거절하지 않는다. 사용자가 달력에서 넉넉하게 집은
+    // 구간을 400으로 되돌려주면 화면이 그냥 죽는다 — 대신 실제 데이터가 있는
+    // 쪽으로 당겨서 되돌려주고, 어디까지 집계됐는지는 응답의 work_date가 말해준다.
+    if span_days(f, t) > MAX_RANGE_DAYS {
+        if let Ok(Some((first, last))) = c.job_date_bounds(1_000_000).await {
+            if let Ok(bf) = NaiveDate::parse_from_str(&first, "%Y-%m-%d") {
+                f = f.max(bf);
+            }
+            if let Ok(bl) = NaiveDate::parse_from_str(&last, "%Y-%m-%d") {
+                t = t.min(bl);
+            }
+        }
+        // 보유 구간 자체가 상한보다 넓으면 최근 쪽을 남긴다.
+        if span_days(f, t) > MAX_RANGE_DAYS {
+            f = t - Duration::days(MAX_RANGE_DAYS - 1);
+        }
+    }
+
+    // 요청 구간과 보유 구간이 아예 안 겹치면 빈 결과다 — 에러가 아니다.
+    if t < f {
+        return match group_by.as_str() {
+            "day" => json_response(StatusCode::OK, &Vec::<DailyStats>::new()),
+            "model" => json_response(StatusCode::OK, &sum_by_model(&[])),
+            _ => json_error(StatusCode::BAD_REQUEST, "group_by must be day|model"),
+        };
+    }
+
+    let from = f.format("%Y-%m-%d").to_string();
+    let to = t.format("%Y-%m-%d").to_string();
     let dates = match iter_dates(&from, &to) {
         Ok(d) => d,
         Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
     };
-    // Cap the number of days so a bad client can't sweep years of data.
-    if dates.len() > 366 {
-        return json_error(StatusCode::BAD_REQUEST, "range exceeds 366 days");
-    }
 
     // One ranged read, not one per day: CoreDB scans the whole `jobs` table for
     // every statement, so N per-day queries cost N full scans (a 7-day window
     // took ~24s). Bucket the rows here instead.
     use std::collections::BTreeMap;
-    let c = client();
     let rows = match c.agg_rows_for_range(&from, &to, 1_000_000).await {
         Ok(r) => r,
         Err(e) => return repo_error_response(&e),
@@ -850,6 +887,13 @@ fn csv_escape(s: &str) -> String {
     } else {
         s.to_string()
     }
+}
+
+/// 한 번의 조회로 훑을 수 있는 최대 일수. 넘으면 거절하지 않고 잘라낸다.
+const MAX_RANGE_DAYS: i64 = 366;
+
+fn span_days(from: NaiveDate, to: NaiveDate) -> i64 {
+    (to - from).num_days() + 1
 }
 
 fn iter_dates(from: &str, to: &str) -> Result<Vec<String>, String> {

@@ -9,6 +9,17 @@ import type { ProductionRun } from '../lib/api';
 
 type SeqTip = { x: number; y: number; run: ProductionRun; share: number };
 
+/// 불일치율을 색으로. 표본이 없으면(null) 색을 주지 않는다 — 초록으로
+/// 칠하면 "확인했고 문제없다"로 읽힌다.
+function rateTone(rate: number | null): string {
+  if (rate === null) return '';
+  // 도장 라인 기준으로 잡는다. 10대 중 1대가 다른 차종이면 이미 문제라,
+  // 9.9%를 초록으로 칠하면 안 된다.
+  if (rate >= 15) return ' bad';
+  if (rate >= 5) return ' warn';
+  return ' ok';
+}
+
 export default function Today() {
   const qc = useQueryClient();
   const [seqTip, setSeqTip] = useState<SeqTip | null>(null);
@@ -85,6 +96,16 @@ export default function Today() {
   const missPct = s.total_jobs > 0 ? (s.mismatch_jobs / s.total_jobs) * 100 : 0;
   const clean = s.mismatch_jobs === 0;
   const mf = mix.data;
+
+  // 전환 직후 구간. 표본이 하나도 없으면 아예 그리지 않는다.
+  const acRaw = est.data?.after_changeover;
+  const ac = acRaw && (acRaw.first_unit.total + acRaw.early_units.total + acRaw.steady_units.total) > 0
+    ? [
+        { label: '첫 대', ...acRaw.first_unit, rate: acRaw.first_unit.mismatch_rate },
+        { label: '2~3대째', ...acRaw.early_units, rate: acRaw.early_units.mismatch_rate },
+        { label: '4대째 이후', ...acRaw.steady_units, rate: acRaw.steady_units.mismatch_rate },
+      ]
+    : null;
 
   // 엣지가 PLC·카메라를 짝지어 보낸 적이 있는가. 없으면 s.mismatch_jobs는
   // "이상 없음"이 아니라 "비교한 적 없음"이다 — 그 둘을 같은 초록불로
@@ -243,6 +264,32 @@ export default function Today() {
                 <div className="gauge-label">단독 투입 (1대)</div>
               </div>
             </div>
+
+            {ac && (
+              <div className="changeover">
+                <div className="changeover-head">
+                  <span>전환 직후 불일치 · 추정</span>
+                  <span className="push">런 위치 기준</span>
+                </div>
+                <div className="changeover-cells">
+                  {ac.map(b => (
+                    <div className="changeover-cell" key={b.label}>
+                      <div className={`gauge-value mid${rateTone(b.rate)}`}>
+                        {b.rate === null ? '—' : b.rate.toFixed(1)}
+                        {b.rate !== null && <span className="gauge-unit">%</span>}
+                      </div>
+                      <div className="gauge-label">{b.label}</div>
+                      <div className="changeover-n">{b.total}대</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="hint changeover-note">
+                  차종이 바뀐 뒤 몇 대째인지로 나눈 값입니다. 정합 자체가 추정치라
+                  이 수치도 확정이 아닙니다 — 부스가 레시피를 못 따라간 것인지,
+                  이송 지연 추정의 오차인지는 아직 구분되지 않습니다.
+                </p>
+              </div>
+            )}
 
             {/* 투입 순서 띠 — 폭이 대수에 비례한다. 합계 막대가 지우는
                 정보가 여기 남는다. */}

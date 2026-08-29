@@ -72,9 +72,23 @@ export type CoatingsToday = {
 
 /// PLC↔카메라 지연 상관의 사후 추정치. DB의 match_status는 건드리지 않는다 —
 /// 어디까지나 관찰용이고, `offset_secs`가 null이면 추정 자체를 못 한 것이다.
+export type MatchBucket = {
+  matched: number;
+  mismatch: number;
+  total: number;
+  /// 표본이 없으면 null. 0으로 내려오면 "이상 없음"으로 오해된다.
+  mismatch_rate: number | null;
+};
+
 export type ReconcileEstimate = {
   work_date: string;
   offset_secs: number | null;
+  /// 전환 직후 구간별. 구간은 카메라 쪽 런 위치라 추정 오프셋과 무관하다.
+  after_changeover: {
+    first_unit: MatchBucket;
+    early_units: MatchBucket;
+    steady_units: MatchBucket;
+  };
   plc_states: number;
   camera_events: number;
   matched: number;

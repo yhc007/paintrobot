@@ -158,6 +158,33 @@ pub struct Reconciled {
     pub status: MatchStatus,
 }
 
+/// 정합/불일치 한 쌍. 구간별로 나눠 담는다.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MatchBucket {
+    pub matched: u32,
+    pub mismatch: u32,
+}
+
+impl MatchBucket {
+    pub fn total(&self) -> u32 {
+        self.matched + self.mismatch
+    }
+    /// 불일치율(%). 표본이 없으면 None — 0%로 내려보내면 "이상 없음"으로 읽힌다.
+    pub fn mismatch_rate(&self) -> Option<f64> {
+        match self.total() {
+            0 => None,
+            t => Some(self.mismatch as f64 / t as f64 * 100.0),
+        }
+    }
+    fn add(&mut self, ok: bool) {
+        if ok {
+            self.matched += 1;
+        } else {
+            self.mismatch += 1;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ReconcileReport {
     /// 추정된 지연(초). 추정에 실패하면 None.
@@ -170,6 +197,18 @@ pub struct ReconcileReport {
     pub skipped_no_plc: u32,
     pub plc_states: u32,
     pub camera_events: u32,
+
+    // ── 전환 직후 구간별 ────────────────────────────────────────────
+    //
+    // 구간을 **카메라 쪽 런 위치**로 나눈다. PLC 전환으로부터의 거리로 나누면
+    // 우리가 추정한 오프셋의 오차가 그대로 지표에 섞인다. 런 위치는 카메라
+    // 순서만으로 정해지므로 오프셋과 무관하다.
+    /// 차종이 바뀐 직후 첫 대.
+    pub first_unit: MatchBucket,
+    /// 2~3대째.
+    pub early_units: MatchBucket,
+    /// 4대째 이후 — 라인이 안정된 구간.
+    pub steady_units: MatchBucket,
 }
 
 /// 지연 탐색 상한(초). 이보다 긴 이송 시간은 상정하지 않는다.
@@ -241,8 +280,16 @@ pub fn reconcile(
     };
     report.offset_secs = Some(offset);
 
+    // 런 위치는 판정 여부와 무관하게 전체 순서에서 센다 — 중간이 보류돼도
+    // 뒤 차의 "몇 대째"가 밀리면 안 된다.
+    let mut run_pos: Vec<u32> = Vec::with_capacity(cams.len());
+    for (i, c) in cams.iter().enumerate() {
+        let same = i > 0 && cams[i - 1].model_no == c.model_no;
+        run_pos.push(if same { run_pos[i - 1] + 1 } else { 1 });
+    }
+
     let mut out = Vec::new();
-    for c in cams {
+    for (i, c) in cams.iter().enumerate() {
         if c.confidence < min_confidence {
             report.skipped_low_confidence += 1;
             continue;
@@ -251,7 +298,13 @@ pub fn reconcile(
             report.skipped_no_plc += 1;
             continue;
         };
-        let status = if plc == c.model_no {
+        let ok = plc == c.model_no;
+        match run_pos[i] {
+            1 => report.first_unit.add(ok),
+            2..=3 => report.early_units.add(ok),
+            _ => report.steady_units.add(ok),
+        }
+        let status = if ok {
             report.matched += 1;
             MatchStatus::Matched
         } else {
@@ -435,6 +488,54 @@ mod tests {
         let a = stats.models.iter().find(|m| m.model_no == "A").unwrap();
         assert_eq!(a.job_count, 1);
         assert_eq!(a.mismatch_count, 0);
+    }
+
+    #[test]
+    fn run_position_buckets_split_changeover_from_steady() {
+        // PLC는 계속 "1". 카메라는 전환 직후 첫 대만 다른 차종을 본다.
+        let timeline = vec![plc(0, "1"), plc(1000, "9")];
+        let mut cams = Vec::new();
+        // [2] 한 대 → 첫 대 불일치
+        cams.push(cam("c0", 0, "2", 0.95));
+        // [1] 열 대 → 첫 대는 정합, 나머지는 2~3대째/안정 구간
+        for i in 1..11 {
+            cams.push(cam(&format!("c{i}"), i, "1", 0.95));
+        }
+        let (_, rep) = reconcile(&timeline, &cams, 0.7);
+        // 런: [2 x1][1 x10] → 첫 대는 2건(c0, c1)
+        assert_eq!(rep.first_unit.total(), 2);
+        assert_eq!(rep.first_unit.mismatch, 1);
+        assert_eq!(rep.first_unit.mismatch_rate(), Some(50.0));
+        // 2~3대째는 2건, 전부 정합
+        assert_eq!(rep.early_units.total(), 2);
+        assert_eq!(rep.early_units.mismatch, 0);
+        // 나머지는 안정 구간
+        assert_eq!(rep.steady_units.total(), 7);
+        assert_eq!(rep.first_unit.total() + rep.early_units.total() + rep.steady_units.total(),
+                   rep.matched + rep.mismatch);
+    }
+
+    #[test]
+    fn empty_bucket_has_no_rate_rather_than_zero() {
+        // 표본이 없을 때 0%를 돌려주면 "이상 없음"으로 읽힌다
+        let b = MatchBucket::default();
+        assert_eq!(b.mismatch_rate(), None);
+        assert_eq!(b.total(), 0);
+    }
+
+    #[test]
+    fn skipped_reads_do_not_shift_run_position() {
+        let timeline = vec![plc(0, "1"), plc(1000, "9")];
+        let mut cams = vec![cam("blurry", 0, "1", 0.10)];
+        for i in 1..12 {
+            cams.push(cam(&format!("c{i}"), i, "1", 0.95));
+        }
+        let (_, rep) = reconcile(&timeline, &cams, 0.7);
+        // 첫 대(blurry)는 보류됐지만 2대째는 여전히 2대째다 — 첫 대 버킷은 비고,
+        // 2~3대째에 2건이 들어간다.
+        assert_eq!(rep.skipped_low_confidence, 1);
+        assert_eq!(rep.first_unit.total(), 0);
+        assert_eq!(rep.early_units.total(), 2);
     }
 
     // ── 혼류 지표 ──────────────────────────────────────────────────────

@@ -725,6 +725,16 @@ async fn stats_bounds() -> Response<Body> {
     }
 }
 
+fn bucket_json(b: &domain::MatchBucket) -> serde_json::Value {
+    serde_json::json!({
+        "matched": b.matched,
+        "mismatch": b.mismatch,
+        "total": b.total(),
+        // 표본이 없으면 null. 0으로 내려보내면 화면에서 "이상 없음"으로 읽힌다.
+        "mismatch_rate": b.mismatch_rate(),
+    })
+}
+
 /// 혼류 생산 지표 — 순서에서만 나오는 값들.
 ///
 /// 일자별 합계로는 혼류가 보이지 않는다. 같은 100대라도 한 차종을 몰아서
@@ -896,6 +906,13 @@ async fn reconcile_jobs(
             "mismatch": report.mismatch,
             "skipped_low_confidence": report.skipped_low_confidence,
             "skipped_no_plc": report.skipped_no_plc,
+            // 전환 직후 구간별. 구간은 카메라 쪽 런 위치로 나눈 값이라
+            // 추정 오프셋의 오차가 섞이지 않는다.
+            "after_changeover": {
+                "first_unit": bucket_json(&report.first_unit),
+                "early_units": bucket_json(&report.early_units),
+                "steady_units": bucket_json(&report.steady_units),
+            },
             "written": written,
             "write_errors": write_errors,
         }),

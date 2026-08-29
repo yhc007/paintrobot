@@ -286,6 +286,35 @@ main {
 /* 1대짜리 단독 투입은 폭이 거의 없어 눈에 안 띈다. 위쪽에 표식을 준다. */
 .seqbar-run.single { box-shadow: inset 0 3px 0 var(--pb-text); }
 
+/* 전환 직후 불일치 */
+.changeover {
+  margin-top: var(--pb-gap);
+  padding-top: 12px;
+  border-top: 1px solid var(--pb-divider-soft);
+}
+.changeover-head {
+  display: flex; gap: 12px;
+  /* .push는 .bp-foot 아래에만 정의돼 있어 여기선 직접 민다 */
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-muted);
+  margin-bottom: 10px;
+}
+.changeover-cells {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.changeover-head .push { margin-left: auto; }
+.changeover-cell { min-width: 0; }
+.changeover-n {
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-dim);
+  margin-top: 2px;
+}
+/* 추정치라는 사실이 수치와 같이 보여야 한다 */
+.changeover-note { margin-top: 10px; max-width: 70ch; line-height: 1.5; }
+
+@media (max-width: 760px) {
+  .changeover-cells { grid-template-columns: 1fr; }
+}
+
 
 
 @media (max-width: 1400px) {

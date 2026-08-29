@@ -71,6 +71,48 @@ impl<T: HttpTransport> CoreDbClient<T> {
         Ok(())
     }
 
+    /// 이미 저장된 행을 새 판정으로 덮어쓴다 (지연 상관 배치용).
+    ///
+    /// CoreDB는 UPDATE를 지원하지 않는다. 같은 PRIMARY KEY로 INSERT하면 LSM
+    /// 셀 타임스탬프가 갱신되어 upsert가 되므로, 읽어온 행을 그대로 되쓰면서
+    /// `plc_model_no`와 `match_status`만 바꾼다. 나머지 필드는 손대지 않는다.
+    pub async fn rewrite_job_match(
+        &self,
+        row: &JobRow,
+        plc_model_no: &str,
+        match_status: MatchStatus,
+    ) -> Result<(), RepoError> {
+        check_identifier(&row.event_id)?;
+        check_identifier(&row.edge_id)?;
+        check_identifier(plc_model_no)?;
+        check_identifier(&row.work_date)?;
+        if let Some(m) = &row.camera_model_no {
+            check_identifier(m)?;
+        }
+
+        let cql = format!(
+            "INSERT INTO {ks}.jobs \
+             (event_id, edge_id, plc_model_no, camera_model_no, plc_ts, camera_ts, \
+              confidence, match_status, work_date, image_ref, created_at) \
+             VALUES ({event_id}, {edge_id}, {plc}, {cam}, {pts}, {cts}, \
+                     {conf}, {status}, {wd}, {img}, {ca})",
+            ks = self.keyspace,
+            event_id = quote_text(&row.event_id),
+            edge_id = quote_text(&row.edge_id),
+            plc = quote_text(plc_model_no),
+            cam = quote_text(row.camera_model_no.as_deref().unwrap_or("")),
+            pts = row.plc_ts.unwrap_or(0),
+            cts = row.camera_ts.unwrap_or(0),
+            conf = fmt_double(row.confidence.unwrap_or(0.0)),
+            status = quote_text(match_status.as_str()),
+            wd = quote_text(&row.work_date),
+            img = quote_text(row.image_ref.as_deref().unwrap_or("")),
+            ca = row.created_at,
+        );
+        self.execute(&cql).await?;
+        Ok(())
+    }
+
     /// Returns Some(row) if the event_id exists, None otherwise.
     pub async fn get_job(&self, event_id: &str) -> Result<Option<JobRow>, RepoError> {
         check_identifier(event_id)?;

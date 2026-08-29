@@ -43,6 +43,11 @@ async fn main(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
         ("GET", "/api/v1/stats/daily") => Ok(stats_daily(&query).await),
         ("GET", "/api/v1/stats/range") => Ok(stats_range(&query).await),
         ("GET", "/api/v1/stats/bounds") => Ok(stats_bounds().await),
+        // 관찰용(읽기 전용). 쓰기는 아래 POST + dry_run=false.
+        ("GET", "/api/v1/stats/reconcile") => Ok(reconcile_jobs(&query, None).await),
+        ("POST", "/api/v1/jobs/reconcile") => {
+            Ok(reconcile_jobs(&query, Some(req.headers())).await)
+        }
         ("GET", "/api/v1/jobs") => Ok(list_jobs(&query).await),
         ("GET", "/api/v1/jobs/export.csv") => Ok(export_jobs_csv(&query).await),
         ("GET", "/api/v1/weather/current") => Ok(weather_current().await),
@@ -719,6 +724,118 @@ async fn stats_bounds() -> Response<Body> {
     }
 }
 
+/// PLC 상태와 카메라 인식을 사후에 이어붙여 `match_status`를 다시 매긴다.
+///
+/// 왜 사후인가: 카메라가 PLC보다 앞선다. 투입구에서 읽힌 차가 도장 부스에
+/// 도착해야 PLC 상태에 반영되므로, 카메라 이벤트가 들어오는 순간에는 짝이 될
+/// PLC 지시가 아직 없다. 그래서 ingest 시점에는 못 하고 하루가 지난 뒤 돌린다.
+///
+/// `dry_run=true`(기본)면 무엇이 바뀔지만 계산하고 쓰지 않는다. 실제로 쓰려면
+/// `dry_run=false`를 명시해야 한다 — 판정 결과를 덮어쓰는 일이라 기본값을
+/// 안전한 쪽에 둔다.
+async fn reconcile_jobs(
+    query: &str,
+    headers: Option<&wstd::http::HeaderMap>,
+) -> Response<Body> {
+    // headers가 없으면 GET(관찰용) — 절대 쓰지 않는다.
+    let may_write = match headers {
+        Some(h) => {
+            if !check_edge_key(h) {
+                return json_error(StatusCode::UNAUTHORIZED, "missing or invalid X-Edge-Key");
+            }
+            true
+        }
+        None => false,
+    };
+    let Some(date) = query_param(query, "date") else {
+        return json_error(StatusCode::BAD_REQUEST, "missing date");
+    };
+    if NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err() {
+        return json_error(StatusCode::BAD_REQUEST, "date must be YYYY-MM-DD");
+    }
+    let dry_run = !may_write || query_param(query, "dry_run").as_deref() != Some("false");
+    let min_confidence = query_param(query, "min_confidence")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(DEFAULT_MIN_CONFIDENCE);
+
+    let c = client();
+    let rows = match c.scan_jobs_for_date(&date, 1_000_000).await {
+        Ok(r) => r,
+        Err(e) => return repo_error_response(&e),
+    };
+
+    // PLC 상태 이벤트 → 시간순 → 연속 중복 압축
+    let mut plc_events: Vec<domain::PlcState> = rows
+        .iter()
+        .filter(|r| r.match_status == "plc_only")
+        .filter_map(|r| {
+            Some(domain::PlcState {
+                ts_ms: r.plc_ts.filter(|t| *t > 0)?,
+                model_no: r.plc_model_no.clone().filter(|m| !m.is_empty())?,
+            })
+        })
+        .collect();
+    plc_events.sort_by_key(|p| p.ts_ms);
+    let timeline = domain::plc_timeline(&plc_events);
+
+    // 대상: 카메라가 본 차 중 PLC 타임스탬프가 없는 행.
+    //
+    // `camera_only`뿐 아니라 이 배치가 이미 판정한 행도 다시 집는다. 엣지가
+    // 직접 짝지어 보낸 행은 `plc_ts`가 있고, 여기서 덮어쓴 행은 없다 — 그
+    // 차이로 구분한다. 그래야 오프셋 로직이나 신뢰도 기준을 바꿨을 때
+    // 재실행만으로 다시 계산된다.
+    let mut cams: Vec<domain::CamEvent> = rows
+        .iter()
+        .filter(|r| {
+            matches!(r.match_status.as_str(), "camera_only" | "matched" | "mismatch")
+                && r.plc_ts.unwrap_or(0) == 0
+        })
+        .filter_map(|r| {
+            Some(domain::CamEvent {
+                event_id: r.event_id.clone(),
+                ts_ms: r.camera_ts.filter(|t| *t > 0)?,
+                model_no: r.camera_model_no.clone().filter(|m| !m.is_empty())?,
+                confidence: r.confidence.unwrap_or(0.0),
+            })
+        })
+        .collect();
+    cams.sort_by_key(|c| c.ts_ms);
+
+    let (decisions, report) = domain::reconcile(&timeline, &cams, min_confidence);
+
+    let mut written = 0u32;
+    let mut write_errors = 0u32;
+    if !dry_run {
+        for d in &decisions {
+            let Some(row) = rows.iter().find(|r| r.event_id == d.event_id) else {
+                continue;
+            };
+            match c.rewrite_job_match(row, &d.plc_model_no, d.status).await {
+                Ok(()) => written += 1,
+                Err(_) => write_errors += 1,
+            }
+        }
+    }
+
+    json_response(
+        StatusCode::OK,
+        &serde_json::json!({
+            "work_date": date,
+            "dry_run": dry_run,
+            "min_confidence": min_confidence,
+            "offset_secs": report.offset_secs,
+            "plc_states": report.plc_states,
+            "camera_events": report.camera_events,
+            "matched": report.matched,
+            "mismatch": report.mismatch,
+            "skipped_low_confidence": report.skipped_low_confidence,
+            "skipped_no_plc": report.skipped_no_plc,
+            "written": written,
+            "write_errors": write_errors,
+        }),
+    )
+}
+
 fn sum_by_model(daily: &[DailyStats]) -> Vec<paintrobot_schema::ModelCount> {
     use std::collections::BTreeMap;
     let mut acc: BTreeMap<String, (u64, u64)> = BTreeMap::new();
@@ -891,6 +1008,10 @@ fn csv_escape(s: &str) -> String {
 
 /// 한 번의 조회로 훑을 수 있는 최대 일수. 넘으면 거절하지 않고 잘라낸다.
 const MAX_RANGE_DAYS: i64 = 366;
+
+/// 이 아래 신뢰도의 카메라 판독은 정합 판정에서 제외한다. 카메라를 못 믿는
+/// 상황에서 "불일치"라고 적으면 없는 품질 이상을 만들어내는 셈이다.
+const DEFAULT_MIN_CONFIDENCE: f64 = 0.7;
 
 fn span_days(from: NaiveDate, to: NaiveDate) -> i64 {
     (to - from).num_days() + 1

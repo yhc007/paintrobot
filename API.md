@@ -37,6 +37,8 @@
 | GET  | `/api/v1/stats/daily?date=` | ❌ | 특정일 통계 |
 | GET  | `/api/v1/stats/range?from=&to=&group_by=` | ❌ | 기간 통계 (`day`/`model`) |
 | GET  | `/api/v1/stats/bounds` | ❌ | 집계 데이터가 존재하는 최초/최종 날짜 |
+| GET  | `/api/v1/stats/reconcile?date=` | ❌ | PLC↔카메라 지연 상관 **추정** (읽기 전용) |
+| POST | `/api/v1/jobs/reconcile?date=` | ✅ | 상관 결과를 `match_status`에 기록 (기본 dry-run) |
 | GET  | `/api/v1/jobs?from=&to=&model=&status=&page=` | ❌ | 작업 상세 목록 |
 | GET  | `/api/v1/jobs/export.csv?...` | ❌ | CSV 다운로드 |
 | GET  | `/api/v1/coatings/today` | ❌ | 오늘 도막 측정 시계열 |
@@ -333,6 +335,37 @@ curl -X POST http://192.168.10.30:18080/api/v1/plc/recipe \
   ```json
   { "first_date": null, "last_date": null }
   ```
+
+### `/api/v1/stats/reconcile?date=YYYY-MM-DD`
+PLC 상태와 카메라 인식을 **사후에 이어붙인 추정치**. DB는 건드리지 않는다.
+
+왜 사후인가: 카메라가 PLC보다 앞선다. 투입구에서 읽힌 차가 도장 부스에
+도착해야 PLC 상태에 반영되므로, 카메라 이벤트가 들어오는 순간에는 짝이 될
+PLC 지시가 아직 없다. 그래서 ingest 시점 실시간 상관이 불가능하다.
+
+```json
+{
+  "work_date":"2026-08-27", "offset_secs":360,
+  "plc_states":7, "camera_events":73,
+  "matched":64, "mismatch":7,
+  "skipped_low_confidence":2, "skipped_no_plc":0,
+  "dry_run":true, "written":0
+}
+```
+
+- `offset_secs` — 데이터에서 추정한 지연. 상수가 아니다 (관측 6~9.5분).
+  표본이 10대 미만이거나 PLC 상태 전환이 2회 미만이면 `null` (추정 거부).
+- `skipped_low_confidence` — 카메라 신뢰도가 `min_confidence`(기본 0.7) 미만.
+  못 믿는 판독으로 "불일치"를 만들지 않는다.
+- ⚠️ 전환 경계 부근의 불일치에는 타이밍 잔차가 섞여 있다. 그대로 품질 지표로
+  쓰지 말 것.
+
+### `POST /api/v1/jobs/reconcile?date=&dry_run=&min_confidence=`
+같은 계산을 하고 결과를 `match_status`에 **기록**한다. `X-Edge-Key` 필요.
+
+- `dry_run` 기본 **true** — 실제로 쓰려면 `dry_run=false` 명시
+- 대상은 `plc_ts`가 없는 행. 이 배치가 이미 쓴 행도 다시 집으므로 재실행 가능
+- 엣지가 직접 짝지어 보낸 행(`plc_ts` 있음)은 건드리지 않는다
 
 ### `/api/v1/jobs?from=&to=&model=&status=&page=&per_page=`
 작업 상세 목록 (페이징).

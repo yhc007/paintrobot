@@ -120,6 +120,153 @@ pub struct AggRow {
     pub match_status: String,
 }
 
+// ── PLC ↔ 카메라 지연 상관 ──────────────────────────────────────────────
+//
+// 엣지는 PLC 상태와 카메라 인식을 별도 이벤트로 보낸다. `classify`는 레코드
+// 하나만 보므로 둘이 짝지어지지 않아 matched/mismatch가 영영 나오지 않는다.
+// 여기서 사후에 이어붙인다.
+//
+// 카메라가 PLC보다 **앞선다**. 투입구에서 읽힌 차가 컨베이어를 타고 도장
+// 부스에 도착해야 PLC 상태에 반영되기 때문이다. 그래서 ingest 시점 실시간
+// 상관은 불가능하고 — 그 순간엔 짝이 될 PLC 지시가 아직 오지 않았다 —
+// 하루가 지난 뒤 배치로 맞춘다.
+//
+// 지연은 고정이 아니다(라인 속도·재공 수에 따라 변한다). 상수로 박지 않고
+// 매번 데이터에서 추정한다.
+
+/// PLC 상태 구간의 시작점. 같은 모델이 연속으로 보고된 구간은 하나로 압축된다.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlcState {
+    pub ts_ms: i64,
+    pub model_no: String,
+}
+
+/// 카메라가 인식한 차 1대.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CamEvent {
+    pub event_id: String,
+    pub ts_ms: i64,
+    pub model_no: String,
+    pub confidence: f64,
+}
+
+/// 한 카메라 이벤트에 대한 판정 결과.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reconciled {
+    pub event_id: String,
+    pub plc_model_no: String,
+    pub status: MatchStatus,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ReconcileReport {
+    /// 추정된 지연(초). 추정에 실패하면 None.
+    pub offset_secs: Option<i64>,
+    pub matched: u32,
+    pub mismatch: u32,
+    /// 신뢰도 미달 — 카메라를 못 믿으므로 판정하지 않는다.
+    pub skipped_low_confidence: u32,
+    /// 해당 시점에 PLC 상태가 없다 (가동 전/후).
+    pub skipped_no_plc: u32,
+    pub plc_states: u32,
+    pub camera_events: u32,
+}
+
+/// 지연 탐색 상한(초). 이보다 긴 이송 시간은 상정하지 않는다.
+pub const MAX_LAG_SECS: i64 = 900;
+/// 탐색 간격(초).
+pub const LAG_STEP_SECS: i64 = 30;
+/// 이보다 표본이 적으면 지연을 추정하지 않는다 — 몇 대로 맞춘 오프셋은 의미가 없다.
+pub const MIN_SAMPLE: usize = 10;
+
+/// 연속된 동일 모델 PLC 이벤트를 상태 구간 하나로 압축한다.
+/// 입력은 ts 오름차순이어야 한다.
+pub fn plc_timeline(events: &[PlcState]) -> Vec<PlcState> {
+    let mut out: Vec<PlcState> = Vec::new();
+    for e in events {
+        if out.last().map(|p| p.model_no != e.model_no).unwrap_or(true) {
+            out.push(e.clone());
+        }
+    }
+    out
+}
+
+/// `at_ms` 시점에 유효한 PLC 상태의 모델. 타임라인은 ts 오름차순.
+fn plc_model_at(timeline: &[PlcState], at_ms: i64) -> Option<&str> {
+    let idx = timeline.partition_point(|s| s.ts_ms <= at_ms);
+    if idx == 0 {
+        None
+    } else {
+        Some(timeline[idx - 1].model_no.as_str())
+    }
+}
+
+/// 일치 건수가 최대가 되는 지연을 찾는다. 동률이면 짧은 쪽 — 물리적으로
+/// 가장 가까운 해석을 고른다.
+pub fn estimate_offset(timeline: &[PlcState], cams: &[CamEvent]) -> Option<i64> {
+    if timeline.len() < 2 || cams.len() < MIN_SAMPLE {
+        return None;
+    }
+    let mut best: Option<(i64, u32)> = None;
+    let mut off = 0;
+    while off <= MAX_LAG_SECS {
+        let hits = cams
+            .iter()
+            .filter(|c| plc_model_at(timeline, c.ts_ms + off * 1000) == Some(c.model_no.as_str()))
+            .count() as u32;
+        if best.map(|(_, b)| hits > b).unwrap_or(true) {
+            best = Some((off, hits));
+        }
+        off += LAG_STEP_SECS;
+    }
+    best.map(|(o, _)| o)
+}
+
+/// 추정한 지연으로 카메라 이벤트를 판정한다.
+///
+/// 신뢰도가 `min_confidence` 미만이면 판정하지 않는다. 카메라를 못 믿는
+/// 상황에서 "불일치"라고 적으면 없는 품질 이상을 만들어내는 셈이다.
+pub fn reconcile(
+    timeline: &[PlcState],
+    cams: &[CamEvent],
+    min_confidence: f64,
+) -> (Vec<Reconciled>, ReconcileReport) {
+    let mut report = ReconcileReport {
+        plc_states: timeline.len() as u32,
+        camera_events: cams.len() as u32,
+        ..Default::default()
+    };
+    let Some(offset) = estimate_offset(timeline, cams) else {
+        return (Vec::new(), report);
+    };
+    report.offset_secs = Some(offset);
+
+    let mut out = Vec::new();
+    for c in cams {
+        if c.confidence < min_confidence {
+            report.skipped_low_confidence += 1;
+            continue;
+        }
+        let Some(plc) = plc_model_at(timeline, c.ts_ms + offset * 1000) else {
+            report.skipped_no_plc += 1;
+            continue;
+        };
+        let status = if plc == c.model_no {
+            report.matched += 1;
+            MatchStatus::Matched
+        } else {
+            report.mismatch += 1;
+            MatchStatus::Mismatch
+        };
+        out.push(Reconciled {
+            event_id: c.event_id.clone(),
+            plc_model_no: plc.to_string(),
+            status,
+        });
+    }
+    (out, report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +367,81 @@ mod tests {
         let a = stats.models.iter().find(|m| m.model_no == "A").unwrap();
         assert_eq!(a.job_count, 1);
         assert_eq!(a.mismatch_count, 0);
+    }
+
+    // ── 지연 상관 ──────────────────────────────────────────────────────
+    fn plc(ts_min: i64, m: &str) -> PlcState {
+        PlcState { ts_ms: ts_min * 60_000, model_no: m.into() }
+    }
+    fn cam(id: &str, ts_min: i64, m: &str, conf: f64) -> CamEvent {
+        CamEvent { event_id: id.into(), ts_ms: ts_min * 60_000, model_no: m.into(), confidence: conf }
+    }
+
+    #[test]
+    fn timeline_compresses_repeats() {
+        let raw = vec![plc(0, "6"), plc(1, "6"), plc(2, "6"), plc(9, "8"), plc(10, "8"), plc(20, "6")];
+        let t = plc_timeline(&raw);
+        assert_eq!(t.len(), 3);
+        assert_eq!(t[0].model_no, "6");
+        assert_eq!(t[1].ts_ms, 9 * 60_000);
+        assert_eq!(t[2].model_no, "6");
+    }
+
+    /// 카메라가 PLC보다 6분 앞서는 라인. 오프셋을 그만큼 되찾아야 한다.
+    #[test]
+    fn estimates_the_lag_the_line_actually_has() {
+        let timeline = vec![plc(0, "1"), plc(60, "3"), plc(120, "4")];
+        // 카메라는 각 전환보다 6분 먼저 그 모델을 본다
+        let cams: Vec<_> = (0..6).map(|i| cam(&format!("a{i}"), 10 + i * 5, "1", 0.95))
+            .chain((0..6).map(|i| cam(&format!("b{i}"), 54 + i * 5, if i == 0 { "3" } else { "3" }, 0.95)))
+            .collect();
+        let off = estimate_offset(&timeline, &cams).unwrap();
+        assert!((300..=420).contains(&off), "offset {off} 이 6분 근방이 아님");
+    }
+
+    #[test]
+    fn refuses_to_guess_from_a_tiny_sample() {
+        let timeline = vec![plc(0, "1"), plc(60, "3")];
+        let cams = vec![cam("a", 5, "1", 0.95), cam("b", 6, "1", 0.95)];
+        assert_eq!(estimate_offset(&timeline, &cams), None);
+        let (out, rep) = reconcile(&timeline, &cams, 0.7);
+        assert!(out.is_empty());
+        assert_eq!(rep.offset_secs, None);
+        assert_eq!(rep.matched + rep.mismatch, 0);
+    }
+
+    #[test]
+    fn low_confidence_reads_are_not_judged() {
+        let timeline = vec![plc(0, "1"), plc(60, "3")];
+        let mut cams: Vec<_> = (0..12).map(|i| cam(&format!("ok{i}"), 1 + i, "1", 0.95)).collect();
+        cams.push(cam("blurry", 20, "9", 0.40));
+        let (out, rep) = reconcile(&timeline, &cams, 0.7);
+        assert_eq!(rep.skipped_low_confidence, 1);
+        // 흐린 판독은 결과에 아예 등장하지 않는다 — 없는 불일치를 만들지 않는다
+        assert!(out.iter().all(|r| r.event_id != "blurry"));
+    }
+
+    #[test]
+    fn genuine_wrong_model_is_flagged() {
+        let timeline = vec![plc(0, "1"), plc(600, "3")];
+        let mut cams: Vec<_> = (0..12).map(|i| cam(&format!("ok{i}"), 1 + i, "1", 0.95)).collect();
+        cams.push(cam("stray", 20, "2", 0.94));
+        let (out, rep) = reconcile(&timeline, &cams, 0.7);
+        assert_eq!(rep.mismatch, 1);
+        let stray = out.iter().find(|r| r.event_id == "stray").unwrap();
+        assert_eq!(stray.status, MatchStatus::Mismatch);
+        assert_eq!(stray.plc_model_no, "1");
+    }
+
+    #[test]
+    fn events_before_any_plc_state_are_skipped() {
+        let timeline = vec![plc(100, "1")];
+        let cams: Vec<_> = (0..12).map(|i| cam(&format!("e{i}"), i, "1", 0.95)).collect();
+        // 타임라인이 1구간뿐이라 추정 자체를 거부한다
+        assert_eq!(estimate_offset(&timeline, &cams), None);
+
+        let timeline = vec![plc(100, "1"), plc(200, "3")];
+        let (_, rep) = reconcile(&timeline, &cams, 0.7);
+        assert_eq!(rep.skipped_no_plc + rep.matched + rep.mismatch, 12);
     }
 }

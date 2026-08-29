@@ -19,6 +19,17 @@ export default function Today() {
     refetchInterval: 30_000,
   });
 
+  // PLC↔카메라 지연 상관 추정. 전체 스캔이라 비싸므로 5분에 한 번만.
+  // DB는 건드리지 않는 관찰용 값이다.
+  const est = useQuery({
+    queryKey: ['stats', 'reconcile', stats.data?.work_date],
+    queryFn: () => api.reconcile(stats.data!.work_date),
+    enabled: !!stats.data?.work_date,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    retry: false,
+  });
+
   // SSE pushes both stats and current_plc together — wired to the same caches.
   const [, force] = useState(0);
   useEffect(() => {
@@ -54,6 +65,25 @@ export default function Today() {
   const top = ranked[0];
   const missPct = s.total_jobs > 0 ? (s.mismatch_jobs / s.total_jobs) * 100 : 0;
   const clean = s.mismatch_jobs === 0;
+
+  // 엣지가 PLC·카메라를 짝지어 보낸 적이 있는가. 없으면 s.mismatch_jobs는
+  // "이상 없음"이 아니라 "비교한 적 없음"이다 — 그 둘을 같은 초록불로
+  // 표시하면 검증되지 않은 라인을 정상이라고 말하는 셈이 된다.
+  //
+  // reconcile이 세는 camera_events는 PLC 타임스탬프가 없는(=짝이 없는) 행이다.
+  // 그게 오늘 집계 건수 전부라면 검증된 비교가 하나도 없었다는 뜻.
+  const verified = est.data != null && est.data.camera_events < s.total_jobs;
+  const estTotal = (est.data?.matched ?? 0) + (est.data?.mismatch ?? 0);
+  const estRate = estTotal > 0 ? ((est.data?.matched ?? 0) / estTotal) * 100 : null;
+
+  const verdict = verified
+    ? { tone: clean ? 'ok' : 'bad', label: clean ? '정상' : '확인 필요',
+        foot: `불일치율 ${missPct.toFixed(1)}%` }
+    : est.data?.offset_secs != null
+      ? { tone: 'idle', label: '추정',
+          foot: `지연 ${(est.data.offset_secs / 60).toFixed(1)}분 기준 · 미확정` }
+      : { tone: 'idle', label: '미검증',
+          foot: est.isLoading ? '정합 추정 중…' : '표본 부족 · 정합 판정 없음' };
 
   return (
     <>
@@ -91,19 +121,25 @@ export default function Today() {
 
           <Blueprint
             title="품질 이상 · 모델 불일치"
-            right={<div className={`verdict ${clean ? 'ok' : 'bad'}`}>{clean ? '정상' : '확인 필요'}</div>}
+            right={<div className={`verdict ${verdict.tone}`}>{verdict.label}</div>}
             foot={
               <>
-                <span>불일치율 {missPct.toFixed(1)}%</span>
+                <span>{verdict.foot}</span>
                 <span className="push">PLC 지시 ↔ 카메라 인식</span>
               </>
             }
           >
             <div className="match-row">
-              <div className={`gauge-value${clean ? ' ok' : ' bad'}`}>
-                {s.mismatch_jobs}
+              <div className={`gauge-value${verified ? (clean ? ' ok' : ' bad') : ''}`}>
+                {verified ? s.mismatch_jobs : est.data?.mismatch ?? '—'}
                 <span className="gauge-unit"> 건</span>
               </div>
+              {!verified && (
+                <div className="match-aside">
+                  <div>추정 정합 {estRate === null ? '—' : `${estRate.toFixed(1)}%`}</div>
+                  <div>표본 {est.data?.matched ?? 0}+{est.data?.mismatch ?? 0}대</div>
+                </div>
+              )}
             </div>
           </Blueprint>
         </div>

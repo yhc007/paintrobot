@@ -70,12 +70,27 @@ export type CoatingsToday = {
   series: CoatingSample[];
 };
 
+/// PLC↔카메라 지연 상관의 사후 추정치. DB의 match_status는 건드리지 않는다 —
+/// 어디까지나 관찰용이고, `offset_secs`가 null이면 추정 자체를 못 한 것이다.
+export type ReconcileEstimate = {
+  work_date: string;
+  offset_secs: number | null;
+  plc_states: number;
+  camera_events: number;
+  matched: number;
+  mismatch: number;
+  skipped_low_confidence: number;
+  skipped_no_plc: number;
+};
+
 export const api = {
   today: () => getJson<DailyStats>('/api/v1/stats/today'),
   daily: (date: string) => getJson<DailyStats>(`/api/v1/stats/daily?date=${date}`),
   range: (from: string, to: string) =>
     getJson<DailyStats[]>(`/api/v1/stats/range?from=${from}&to=${to}&group_by=day`),
   statsBounds: () => getJson<StatsBounds>('/api/v1/stats/bounds'),
+  reconcile: (date: string) =>
+    getJson<ReconcileEstimate>(`/api/v1/stats/reconcile?date=${date}`),
   weather: () => getJson<WeatherCurrent>('/api/v1/weather/current'),
   plcCurrent: () => getJson<PlcCurrent>('/api/v1/plc/current'),
   coatingsToday: () => getJson<CoatingsToday>('/api/v1/coatings/today'),

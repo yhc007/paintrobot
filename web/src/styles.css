@@ -588,6 +588,41 @@ td .model {
   font-size: var(--pb-meta); letter-spacing: 0.12em; color: var(--pb-soft);
 }
 .cam-dot { width: 8px; height: 8px; background: var(--pb-bad); animation: pb-pulse 1.6s infinite; }
+/* 연결 전에는 깜빡이지 않는다 — 점멸은 살아 있다는 신호다 */
+.cam-badge.off { color: var(--pb-dim); }
+.cam-badge.off .cam-dot { background: var(--pb-dim); animation: none; }
+
+/* ── 시험 방송 화면 ───────────────────────────────────────────────
+   실제 영상이 아니라는 걸 한눈에 알리는 게 목적이라, 대시보드 톤과
+   어긋나는 방송 컬러바를 그대로 쓴다. */
+.testcard {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  background: #131313;
+}
+.testcard-bars { flex: 1 1 72%; display: flex; }
+.testcard-strip { flex: 0 0 8%; display: flex; }
+.testcard-foot { flex: 0 0 20%; display: flex; }
+.testcard-bars > i,
+.testcard-strip > i { flex: 1 1 0; }
+.testcard-foot > i { flex-basis: 0; }
+.testcard-plate {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 10px 22px;
+  background: rgba(7, 7, 7, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  text-align: center;
+}
+.testcard-title {
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: clamp(20px, 1.8vw, 34px);
+  letter-spacing: 0.08em; color: #fff;
+}
+.testcard-sub {
+  font-family: var(--pb-label); font-size: var(--pb-meta);
+  color: rgba(255, 255, 255, 0.72); margin-top: 2px;
+}
 .cam-meta {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   font-family: var(--pb-label);

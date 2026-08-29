@@ -109,10 +109,6 @@ export default function Live() {
         </div>
       </section>
 
-      <p className="hint">
-        영상이 보이지 않으면 엣지 PC에서 카메라 스트림이 송출 중인지 확인하세요.
-        (스냅샷은 뜨는데 영상만 끊기면 네트워크/방화벽 문제일 수 있습니다.)
-      </p>
     </>
   );
 }

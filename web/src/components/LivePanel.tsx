@@ -127,6 +127,15 @@ export default function LivePanel({ compact = false }: { compact?: boolean }) {
           전체화면
         </a>
       </div>
+
+      {/* 안내는 신호가 없을 때만. 잘 나오는 카메라 밑에 문제 해결 안내를
+          상시로 띄워두면 읽히지 않는 문구가 된다. */}
+      {!compact && cam === 'offline' && (
+        <p className="hint">
+          카메라에서 프레임이 오지 않습니다. 엣지 PC에서 스트림이 송출 중인지
+          확인하세요. 15초마다 다시 확인하며, 연결되면 자동으로 영상으로 바뀝니다.
+        </p>
+      )}
     </div>
   );
 }

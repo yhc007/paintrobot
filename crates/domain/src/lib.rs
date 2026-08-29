@@ -267,6 +267,74 @@ pub fn reconcile(
     (out, report)
 }
 
+// ── 혼류 생산 지표 ──────────────────────────────────────────────────────
+//
+// 합계만 내면 혼류의 본질이 사라진다. 같은 100대라도 한 차종을 몰아서 만든
+// 것과 여덟 차종이 섞여 흐른 것은 라인에 전혀 다른 부담이다. 순서에서만
+// 나오는 값들을 여기서 뽑는다.
+
+/// 같은 모델이 연속으로 흐른 구간.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductionRun {
+    pub model_no: String,
+    pub count: u32,
+    pub start_ms: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MixFlowStats {
+    pub units: u32,
+    pub models: u32,
+    /// 앞 차와 모델이 달라진 횟수.
+    pub changeovers: u32,
+    /// 전환 횟수 / (대수-1). 1에 가까울수록 매 대마다 차종이 바뀐다.
+    pub changeover_rate: f64,
+    pub avg_run: f64,
+    pub max_run: u32,
+    /// 1대만 끼어든 투입. 혼류에서 가장 어려운 케이스 — 차 한 대 지나가는
+    /// 동안 레시피를 바꿔야 한다.
+    pub singles: u32,
+    pub runs: Vec<ProductionRun>,
+}
+
+/// 투입 순서에서 혼류 지표를 뽑는다. 입력은 시간 오름차순.
+pub fn mix_flow(seq: &[(i64, String)]) -> MixFlowStats {
+    let mut runs: Vec<ProductionRun> = Vec::new();
+    for (ts, model) in seq {
+        match runs.last_mut() {
+            Some(r) if r.model_no == *model => r.count += 1,
+            _ => runs.push(ProductionRun {
+                model_no: model.clone(),
+                count: 1,
+                start_ms: *ts,
+            }),
+        }
+    }
+    let units = seq.len() as u32;
+    let changeovers = runs.len().saturating_sub(1) as u32;
+    let mut distinct: Vec<&str> = runs.iter().map(|r| r.model_no.as_str()).collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+    MixFlowStats {
+        units,
+        models: distinct.len() as u32,
+        changeovers,
+        changeover_rate: if units > 1 {
+            changeovers as f64 / (units - 1) as f64
+        } else {
+            0.0
+        },
+        avg_run: if runs.is_empty() {
+            0.0
+        } else {
+            units as f64 / runs.len() as f64
+        },
+        max_run: runs.iter().map(|r| r.count).max().unwrap_or(0),
+        singles: runs.iter().filter(|r| r.count == 1).count() as u32,
+        runs,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,6 +435,54 @@ mod tests {
         let a = stats.models.iter().find(|m| m.model_no == "A").unwrap();
         assert_eq!(a.job_count, 1);
         assert_eq!(a.mismatch_count, 0);
+    }
+
+    // ── 혼류 지표 ──────────────────────────────────────────────────────
+    fn seq(models: &[&str]) -> Vec<(i64, String)> {
+        models.iter().enumerate().map(|(i, m)| (i as i64 * 60_000, m.to_string())).collect()
+    }
+
+    #[test]
+    fn batch_run_is_not_mixed_flow() {
+        let s = mix_flow(&seq(&["1"; 10]));
+        assert_eq!(s.units, 10);
+        assert_eq!(s.changeovers, 0);
+        assert_eq!(s.avg_run, 10.0);
+        assert_eq!(s.singles, 0);
+        assert_eq!(s.changeover_rate, 0.0);
+    }
+
+    #[test]
+    fn alternating_every_unit_is_maximally_mixed() {
+        let s = mix_flow(&seq(&["1", "2", "1", "2", "1"]));
+        assert_eq!(s.changeovers, 4);
+        assert!((s.changeover_rate - 1.0).abs() < 1e-9);
+        assert_eq!(s.singles, 5);
+        assert_eq!(s.max_run, 1);
+    }
+
+    /// 실제 라인에서 본 모양 — 긴 구간 사이에 1대가 끼어든다.
+    #[test]
+    fn counts_the_single_unit_insertions() {
+        let s = mix_flow(&seq(&["1", "1", "1", "2", "1", "1", "5", "5", "5", "6"]));
+        assert_eq!(s.units, 10);
+        assert_eq!(s.models, 4);
+        // 런: [1x3][2x1][1x2][5x3][6x1]
+        assert_eq!(s.changeovers, 4);
+        assert_eq!(s.singles, 2); // "2" 한 대, "6" 한 대
+        assert_eq!(s.max_run, 3);
+        assert_eq!(s.runs.len(), 5);
+        assert_eq!(s.runs[1].model_no, "2");
+        assert_eq!(s.runs[1].count, 1);
+    }
+
+    #[test]
+    fn empty_day_does_not_divide_by_zero() {
+        let s = mix_flow(&[]);
+        assert_eq!(s.units, 0);
+        assert_eq!(s.avg_run, 0.0);
+        assert_eq!(s.changeover_rate, 0.0);
+        assert!(s.runs.is_empty());
     }
 
     // ── 지연 상관 ──────────────────────────────────────────────────────

@@ -37,6 +37,7 @@
 | GET  | `/api/v1/stats/daily?date=` | ❌ | 특정일 통계 |
 | GET  | `/api/v1/stats/range?from=&to=&group_by=` | ❌ | 기간 통계 (`day`/`model`) |
 | GET  | `/api/v1/stats/bounds` | ❌ | 집계 데이터가 존재하는 최초/최종 날짜 |
+| GET  | `/api/v1/stats/mixflow?date=` | ❌ | 혼류 생산 지표 (전환·연속·단독 투입·순서) |
 | GET  | `/api/v1/stats/reconcile?date=` | ❌ | PLC↔카메라 지연 상관 **추정** (읽기 전용) |
 | POST | `/api/v1/jobs/reconcile?date=` | ✅ | 상관 결과를 `match_status`에 기록 (기본 dry-run) |
 | GET  | `/api/v1/jobs?from=&to=&model=&status=&page=` | ❌ | 작업 상세 목록 |
@@ -335,6 +336,26 @@ curl -X POST http://192.168.10.30:18080/api/v1/plc/recipe \
   ```json
   { "first_date": null, "last_date": null }
   ```
+
+### `/api/v1/stats/mixflow?date=YYYY-MM-DD`
+투입 **순서**에서만 나오는 값들. 일자별 합계로는 혼류가 보이지 않는다 — 같은
+100대라도 한 차종을 몰아서 만든 것과 여러 차종이 섞여 흐른 것은 라인에 전혀
+다른 부담인데, 합계를 내면 그 차이가 사라진다.
+
+```json
+{
+  "work_date":"2026-08-24", "units":123, "models":7,
+  "changeovers":17, "changeover_rate":0.139,
+  "avg_run":6.83, "max_run":26, "singles":6,
+  "runs":[{"model_no":"1","count":1,"start_ms":1787...}, ...]
+}
+```
+
+- `changeover_rate` — 전환 / (대수-1). 1에 가까울수록 매 대마다 차종이 바뀐다
+- `singles` — 1대만 끼어든 투입. 차 한 대 지나가는 동안 레시피를 바꿔야 하는,
+  혼류에서 가장 어려운 케이스
+- `runs` — 연속 구간 목록. 대수 단위가 아니라 구간 단위라 응답이 작다
+- 생산으로 세는 기준은 `stats/daily`와 같다 (`plc_only` 제외)
 
 ### `/api/v1/stats/reconcile?date=YYYY-MM-DD`
 PLC 상태와 카메라 인식을 **사후에 이어붙인 추정치**. DB는 건드리지 않는다.

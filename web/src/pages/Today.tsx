@@ -5,9 +5,13 @@ import Blueprint from '../components/Blueprint';
 import PlcCard from '../components/PlcCard';
 import LivePanel from '../components/LivePanel';
 import { buildModelPalette, colorFor } from '../lib/palette';
+import type { ProductionRun } from '../lib/api';
+
+type SeqTip = { x: number; y: number; run: ProductionRun; share: number };
 
 export default function Today() {
   const qc = useQueryClient();
+  const [seqTip, setSeqTip] = useState<SeqTip | null>(null);
   const stats = useQuery({
     queryKey: ['stats', 'today'],
     queryFn: api.today,
@@ -27,6 +31,16 @@ export default function Today() {
     enabled: !!stats.data?.work_date,
     staleTime: 5 * 60_000,
     refetchInterval: 5 * 60_000,
+    retry: false,
+  });
+
+  // 혼류 지표. 순서를 봐야 나오는 값이라 합계 API로는 대체가 안 된다.
+  const mix = useQuery({
+    queryKey: ['stats', 'mixflow', stats.data?.work_date],
+    queryFn: () => api.mixflow(stats.data!.work_date),
+    enabled: !!stats.data?.work_date,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
     retry: false,
   });
 
@@ -60,11 +74,17 @@ export default function Today() {
   const cur: PlcCurrent | null | undefined = plc.data;
   const ranked = [...s.models].sort((a, b) => b.job_count - a.job_count);
   // 실적 페이지와 같은 색. 배정이 모델번호에서 나오므로 두 화면이 자동으로 맞는다.
-  const palette = buildModelPalette(s.models);
+  // 팔레트는 오늘 집계 + 혼류 런의 모델을 합쳐서 만든다. 오늘 집계가 비어
+  // 있으면 순서 띠가 통째로 `기타` 색으로 칠해진다.
+  const palette = buildModelPalette([
+    ...s.models,
+    ...(mix.data?.runs ?? []).map(r => ({ model_no: r.model_no, job_count: r.count })),
+  ]);
   const maxCount = Math.max(1, ...ranked.map(m => m.job_count));
   const top = ranked[0];
   const missPct = s.total_jobs > 0 ? (s.mismatch_jobs / s.total_jobs) * 100 : 0;
   const clean = s.mismatch_jobs === 0;
+  const mf = mix.data;
 
   // 엣지가 PLC·카메라를 짝지어 보낸 적이 있는가. 없으면 s.mismatch_jobs는
   // "이상 없음"이 아니라 "비교한 적 없음"이다 — 그 둘을 같은 초록불로
@@ -182,6 +202,71 @@ export default function Today() {
         </div>
       </section>
 
+      <Blueprint
+        title="혼류 생산 · 금일"
+        right={
+          mf && mf.units > 0 ? (
+            <div className="verdict idle">{(mf.changeover_rate * 100).toFixed(0)}% 전환</div>
+          ) : undefined
+        }
+        foot={
+          mf && mf.units > 0 ? (
+            <>
+              <span>{mf.units}대 · 모델 {mf.models}종</span>
+              <span className="push">투입 순서 왼쪽 → 오른쪽</span>
+            </>
+          ) : undefined
+        }
+      >
+        {(!mf || mf.units === 0) && (
+          <div className="hint">
+            {mix.isLoading ? '집계 중…' : '아직 집계된 작업이 없습니다.'}
+          </div>
+        )}
+        {mf && mf.units > 0 && (
+          <>
+            <div className="summary-grid mix-grid">
+              <div className="summary-cell">
+                <div className="gauge-value mid">{mf.changeovers}</div>
+                <div className="gauge-label">모델 전환</div>
+              </div>
+              <div className="summary-cell">
+                <div className="gauge-value mid ice">{mf.avg_run.toFixed(1)}</div>
+                <div className="gauge-label">평균 연속 생산</div>
+              </div>
+              <div className="summary-cell">
+                <div className="gauge-value mid">{mf.max_run}</div>
+                <div className="gauge-label">최장 연속</div>
+              </div>
+              <div className="summary-cell">
+                <div className={`gauge-value mid${mf.singles > 0 ? ' warn' : ''}`}>{mf.singles}</div>
+                <div className="gauge-label">단독 투입 (1대)</div>
+              </div>
+            </div>
+
+            {/* 투입 순서 띠 — 폭이 대수에 비례한다. 합계 막대가 지우는
+                정보가 여기 남는다. */}
+            <div className="seqbar" onMouseLeave={() => setSeqTip(null)}>
+              {mf.runs.map((r, i) => (
+                <div
+                  key={`${r.start_ms}-${i}`}
+                  className={`seqbar-run${r.count === 1 ? ' single' : ''}`}
+                  style={{
+                    flexGrow: r.count,
+                    background: colorFor(palette, r.model_no),
+                  }}
+                  onMouseMove={e => setSeqTip({
+                    x: e.clientX, y: e.clientY, run: r,
+                    share: (r.count / mf.units) * 100,
+                  })}
+                  onMouseLeave={() => setSeqTip(null)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </Blueprint>
+
       <Blueprint title="모델별 상세 · 금일">
         <div className="table-wrap">
           <table>
@@ -226,6 +311,26 @@ export default function Today() {
           </table>
         </div>
       </Blueprint>
+
+      {seqTip && (
+        <div
+          className="chart-tip"
+          style={{
+            left: Math.min(Math.max(seqTip.x, 130), window.innerWidth - 130),
+            top: seqTip.y,
+          }}
+          role="tooltip"
+        >
+          <div className="chart-tip-row">
+            <i style={{ background: colorFor(palette, seqTip.run.model_no) }} />
+            <span className="chart-tip-name">{seqTip.run.model_no}</span>
+            <span className="chart-tip-num">{seqTip.run.count}</span>
+          </div>
+          <div className="chart-tip-share">
+            연속 {seqTip.run.count}대 · 구성비 {seqTip.share.toFixed(1)}%
+          </div>
+        </div>
+      )}
     </>
   );
 }

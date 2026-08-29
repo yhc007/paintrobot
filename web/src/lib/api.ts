@@ -83,12 +83,30 @@ export type ReconcileEstimate = {
   skipped_no_plc: number;
 };
 
+/// 순서에서만 나오는 값들. 일자별 합계로는 혼류가 보이지 않는다.
+export type ProductionRun = { model_no: string; count: number; start_ms: number };
+export type MixFlow = {
+  work_date: string;
+  units: number;
+  models: number;
+  /// 앞 차와 모델이 달라진 횟수
+  changeovers: number;
+  /// 전환 / (대수-1). 1에 가까울수록 매 대마다 차종이 바뀐다.
+  changeover_rate: number;
+  avg_run: number;
+  max_run: number;
+  /// 1대만 끼어든 투입
+  singles: number;
+  runs: ProductionRun[];
+};
+
 export const api = {
   today: () => getJson<DailyStats>('/api/v1/stats/today'),
   daily: (date: string) => getJson<DailyStats>(`/api/v1/stats/daily?date=${date}`),
   range: (from: string, to: string) =>
     getJson<DailyStats[]>(`/api/v1/stats/range?from=${from}&to=${to}&group_by=day`),
   statsBounds: () => getJson<StatsBounds>('/api/v1/stats/bounds'),
+  mixflow: (date: string) => getJson<MixFlow>(`/api/v1/stats/mixflow?date=${date}`),
   reconcile: (date: string) =>
     getJson<ReconcileEstimate>(`/api/v1/stats/reconcile?date=${date}`),
   weather: () => getJson<WeatherCurrent>('/api/v1/weather/current'),

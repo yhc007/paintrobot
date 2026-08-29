@@ -43,6 +43,7 @@ async fn main(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
         ("GET", "/api/v1/stats/daily") => Ok(stats_daily(&query).await),
         ("GET", "/api/v1/stats/range") => Ok(stats_range(&query).await),
         ("GET", "/api/v1/stats/bounds") => Ok(stats_bounds().await),
+        ("GET", "/api/v1/stats/mixflow") => Ok(stats_mixflow(&query).await),
         // 관찰용(읽기 전용). 쓰기는 아래 POST + dry_run=false.
         ("GET", "/api/v1/stats/reconcile") => Ok(reconcile_jobs(&query, None).await),
         ("POST", "/api/v1/jobs/reconcile") => {
@@ -722,6 +723,71 @@ async fn stats_bounds() -> Response<Body> {
         ),
         Err(e) => repo_error_response(&e),
     }
+}
+
+/// 혼류 생산 지표 — 순서에서만 나오는 값들.
+///
+/// 일자별 합계로는 혼류가 보이지 않는다. 같은 100대라도 한 차종을 몰아서
+/// 만든 것과 여러 차종이 섞여 흐른 것은 라인에 전혀 다른 부담인데, 합계를
+/// 내는 순간 그 차이가 사라진다.
+async fn stats_mixflow(query: &str) -> Response<Body> {
+    let Some(date) = query_param(query, "date") else {
+        return json_error(StatusCode::BAD_REQUEST, "missing date");
+    };
+    if NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err() {
+        return json_error(StatusCode::BAD_REQUEST, "date must be YYYY-MM-DD");
+    }
+
+    let c = client();
+    let rows = match c.scan_jobs_for_date(&date, 1_000_000).await {
+        Ok(r) => r,
+        Err(e) => return repo_error_response(&e),
+    };
+
+    // 생산으로 세는 기준은 `domain::aggregate`와 같다 — plc_only는 PLC 상태
+    // 갱신이지 차가 아니다. 그래야 화면의 생산 대수와 어긋나지 않는다.
+    let mut seq: Vec<(i64, String)> = rows
+        .iter()
+        .filter(|r| r.match_status != "plc_only")
+        .filter_map(|r| {
+            let ts = r.camera_ts.filter(|t| *t > 0).or(r.plc_ts.filter(|t| *t > 0))?;
+            let model = r
+                .camera_model_no
+                .clone()
+                .filter(|m| !m.is_empty())
+                .or_else(|| r.plc_model_no.clone().filter(|m| !m.is_empty()))?;
+            Some((ts, model))
+        })
+        .collect();
+    seq.sort_by_key(|(ts, _)| *ts);
+
+    let stats = domain::mix_flow(&seq);
+    let runs: Vec<_> = stats
+        .runs
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "model_no": r.model_no,
+                "count": r.count,
+                "start_ms": r.start_ms,
+            })
+        })
+        .collect();
+
+    json_response(
+        StatusCode::OK,
+        &serde_json::json!({
+            "work_date": date,
+            "units": stats.units,
+            "models": stats.models,
+            "changeovers": stats.changeovers,
+            "changeover_rate": stats.changeover_rate,
+            "avg_run": stats.avg_run,
+            "max_run": stats.max_run,
+            "singles": stats.singles,
+            "runs": runs,
+        }),
+    )
 }
 
 /// PLC 상태와 카메라 인식을 사후에 이어붙여 `match_status`를 다시 매긴다.

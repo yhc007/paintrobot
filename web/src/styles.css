@@ -267,6 +267,27 @@ main {
   align-content: start;
 }
 
+
+/* 투입 순서 띠. 폭이 대수에 비례하고, 합계 막대가 지우는 순서 정보를 담는다. */
+.seqbar {
+  display: flex;
+  height: 26px;
+  margin-top: var(--pb-gap);
+  border: 1px solid var(--pb-divider-soft);
+}
+.seqbar-run {
+  box-sizing: border-box;
+  min-width: 3px;
+  cursor: crosshair;
+}
+/* 층 사이 2px 서피스 간격 — 인접한 색이 번져 한 덩어리로 보이는 걸 막는다 */
+.seqbar-run + .seqbar-run { border-left: 2px solid var(--pb-bg); }
+.seqbar-run:hover { filter: brightness(1.2); }
+/* 1대짜리 단독 투입은 폭이 거의 없어 눈에 안 띈다. 위쪽에 표식을 준다. */
+.seqbar-run.single { box-shadow: inset 0 3px 0 var(--pb-text); }
+
+
+
 @media (max-width: 1400px) {
   .row-3 { grid-template-columns: 1fr 1fr; }
   .row-4 { grid-template-columns: repeat(2, 1fr); }
@@ -470,6 +491,11 @@ main {
 
 /* 주간 요약 4연 */
 .summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--pb-gap); }
+/* 혼류 4연 수치는 한 줄로 — .summary-grid 뒤에 와야 이긴다 */
+.summary-grid.mix-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 760px) {
+  .summary-grid.mix-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .summary-cell { display: flex; flex-direction: column; gap: 2px; }
 .summary-cell .gauge-value { font-size: var(--pb-big); font-weight: 600; }
 

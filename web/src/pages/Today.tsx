@@ -108,41 +108,43 @@ export default function Today() {
           </Blueprint>
         </div>
 
-        <Blueprint
-          title="투입구 카메라 · 실시간"
-          right={<a className="verdict idle" href="/live" style={{ textDecoration: 'none' }}>크게 보기</a>}
-        >
-          <LivePanel compact />
-        </Blueprint>
-      </section>
+        <div className="today-side">
+          <Blueprint
+            title="투입구 카메라 · 실시간"
+            right={<a className="verdict idle" href="/live" style={{ textDecoration: 'none' }}>크게 보기</a>}
+          >
+            <LivePanel compact />
+          </Blueprint>
 
-      <Blueprint title="모델별 생산 순위 · 금일">
-        {ranked.length === 0 && <div className="hint">아직 집계된 작업이 없습니다.</div>}
-        {ranked.map(m => (
-          <div className="rank-row" key={m.model_no}>
-            <span className="rank-label">{m.model_no}</span>
-            <span className="bar-track">
-              <span
-                className="bar-fill"
-                style={{
-                  width: `${(m.job_count / maxCount) * 100}%`,
-                  background: colorFor(palette, m.model_no),
-                }}
-              >
-                {/* 불일치는 막대 전체를 빨갛게 칠하지 않고 오른쪽 끝 구간으로만
-                    표시한다 — 그래야 모델 색이 살아남는다. */}
-                {m.mismatch_count > 0 && (
+          <Blueprint title="모델별 생산 순위 · 금일">
+            {ranked.length === 0 && <div className="hint">아직 집계된 작업이 없습니다.</div>}
+            {ranked.map(m => (
+              <div className="rank-row" key={m.model_no}>
+                <span className="rank-label">{m.model_no}</span>
+                <span className="bar-track">
                   <span
-                    className="bar-miss"
-                    style={{ width: `${(m.mismatch_count / m.job_count) * 100}%` }}
-                  />
-                )}
-              </span>
-            </span>
-            <span className="rank-val">{m.job_count}</span>
-          </div>
-        ))}
-      </Blueprint>
+                    className="bar-fill"
+                    style={{
+                      width: `${(m.job_count / maxCount) * 100}%`,
+                      background: colorFor(palette, m.model_no),
+                    }}
+                  >
+                    {/* 불일치는 막대 전체를 빨갛게 칠하지 않고 오른쪽 끝 구간으로만
+                        표시한다 — 그래야 모델 색이 살아남는다. */}
+                    {m.mismatch_count > 0 && (
+                      <span
+                        className="bar-miss"
+                        style={{ width: `${(m.mismatch_count / m.job_count) * 100}%` }}
+                      />
+                    )}
+                  </span>
+                </span>
+                <span className="rank-val">{m.job_count}</span>
+              </div>
+            ))}
+          </Blueprint>
+        </div>
+      </section>
 
       <Blueprint title="모델별 상세 · 금일">
         <div className="table-wrap">

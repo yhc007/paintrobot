@@ -261,6 +261,11 @@ main {
 }
 /* 품질 이상 카드는 아래 줄 전체를 쓴다 */
 .today-kpis > :last-child { grid-column: 1 / -1; }
+/* 우측 열 — 카메라 위, 모델별 생산 순위 아래 */
+.today-side {
+  display: grid; gap: var(--pb-gap);
+  align-content: start;
+}
 
 @media (max-width: 1400px) {
   .row-3 { grid-template-columns: 1fr 1fr; }

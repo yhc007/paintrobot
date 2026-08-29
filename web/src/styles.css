@@ -248,15 +248,32 @@ main {
   align-items: start;
 }
 
+/* 현황 최상단 — 왼쪽에 KPI 카드, 오른쪽에 투입구 카메라.
+   카메라는 16:9라 세로로 길어서, KPI 두 줄과 높이가 얼추 맞는다. */
+.today-top {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  align-items: start;
+}
+.today-kpis {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+/* 품질 이상 카드는 아래 줄 전체를 쓴다 */
+.today-kpis > :last-child { grid-column: 1 / -1; }
+
 @media (max-width: 1400px) {
   .row-3 { grid-template-columns: 1fr 1fr; }
   .row-4 { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 1400px) {
+  .today-top { grid-template-columns: 1fr; }
 }
 @media (max-width: 1100px) {
   .row-2, .row-live { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
-  .row-3, .row-4 { grid-template-columns: 1fr; }
+  .row-3, .row-4, .today-kpis { grid-template-columns: 1fr; }
   .clock { display: none; }
 }
 

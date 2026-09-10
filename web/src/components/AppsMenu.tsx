@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 // 같은 사이트에서 돌아가는 다른 관제 화면들. 주소는 실제 응답을 확인해
 // 넣었다 — 각 항목의 note는 그 서비스가 스스로 붙인 제목이다.
 const APPS = [
-  { label: 'R-S LINE HMI', note: '현대정밀 RSpring 실시간 모니터링', href: 'https://rspring.coreon.build' },
+  { label: 'R-S LINE HMI', note: '현대정밀 RSpring 실시간 모니터링 · 로그인 필요', href: 'https://dgx-rspring.coreon.build' },
   { label: 'AAS Browser', note: 'Asset Administration Shell', href: 'https://aas.coreon.build' },
   { label: 'HDM Monitoring', note: '도메인 프로브 상태', href: 'https://hdm-m.coreon.build' },
   { label: 'umati', note: 'FOCAS → OPC UA 라인 모니터', href: 'https://umati.coreon.build' },

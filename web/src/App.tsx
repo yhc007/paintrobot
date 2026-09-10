@@ -4,6 +4,7 @@ import { api } from './lib/api';
 import { matchState } from './components/PlcCard';
 import WeatherWidget from './components/WeatherWidget';
 import Clock from './components/Clock';
+import AppsMenu from './components/AppsMenu';
 
 const TABS = [
   { to: '/today', label: '현황' },
@@ -24,6 +25,8 @@ export default function App() {
   return (
     <div className="shell">
       <header className="header">
+        <AppsMenu />
+
         <div className="brand">
           <span className="brand-bar" aria-hidden="true" />
           <div className="brand-name">PAINTROBOT</div>

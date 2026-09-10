@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "build": "node scripts/gen-apps-menu.mjs && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "gen:menu": "node scripts/gen-apps-menu.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",

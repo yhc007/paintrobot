@@ -34,24 +34,27 @@ export default function Today() {
     refetchInterval: 30_000,
   });
 
-  // PLC↔카메라 지연 상관 추정. 전체 스캔이라 비싸므로 5분에 한 번만.
-  // DB는 건드리지 않는 관찰용 값이다.
+  // PLC↔카메라 지연 상관 추정.
+  //
+  // CoreDB는 이 질의에 `jobs` 전체를 훑는다. 게다가 하루 단위 집계라 자주
+  // 다시 부를 이유가 없다 — 15분이면 충분하고, 짧게 잡으면 스캔만 늘린다.
   const est = useQuery({
     queryKey: ['stats', 'reconcile', stats.data?.work_date],
     queryFn: () => api.reconcile(stats.data!.work_date),
     enabled: !!stats.data?.work_date,
-    staleTime: 5 * 60_000,
-    refetchInterval: 5 * 60_000,
+    staleTime: 15 * 60_000,
+    refetchInterval: 15 * 60_000,
     retry: false,
   });
 
   // 혼류 지표. 순서를 봐야 나오는 값이라 합계 API로는 대체가 안 된다.
+  // 이것도 전체 스캔이고 하루 단위 집계라, 1분 주기는 과했다.
   const mix = useQuery({
     queryKey: ['stats', 'mixflow', stats.data?.work_date],
     queryFn: () => api.mixflow(stats.data!.work_date),
     enabled: !!stats.data?.work_date,
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
     retry: false,
   });
 

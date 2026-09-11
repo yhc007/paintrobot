@@ -147,14 +147,31 @@ async fn ingest_job(req: Request<Body>) -> Response<Body> {
     }
 
     match c.insert_job(&job, &work_date, status, created_at).await {
-        Ok(()) => json_response(
-            StatusCode::OK,
-            &IngestResponse {
-                accepted: 1,
-                duplicates: 0,
-                rejected: vec![],
-            },
-        ),
+        Ok(()) => {
+            // 카메라 인식도 plc_state에 반영해 `/plc/current`가 최신값을 준다.
+            // 실패해도 수집 자체를 실패로 돌리지 않는다 — 여기는 파생 상태다.
+            if let Some(cam) = job.camera_model_no.as_deref().filter(|m| !m.is_empty()) {
+                let prev = c.get_plc_state(&job.edge_id).await.ok().flatten();
+                let _ = c
+                    .upsert_plc_state(&paintrobot_repo_coredb::PlcStateRow {
+                        edge_id: job.edge_id.clone(),
+                        model_no: prev.as_ref().and_then(|p| p.model_no.clone()),
+                        plc_ts: prev.as_ref().and_then(|p| p.plc_ts),
+                        camera_model_no: Some(cam.to_string()),
+                        camera_ts: job.camera_ts.map(|t| t.timestamp_millis()),
+                        updated_at: created_at,
+                    })
+                    .await;
+            }
+            json_response(
+                StatusCode::OK,
+                &IngestResponse {
+                    accepted: 1,
+                    duplicates: 0,
+                    rejected: vec![],
+                },
+            )
+        }
         Err(RepoError::InvalidIdentifier(bad)) => json_response(
             StatusCode::OK,
             &IngestResponse {
@@ -210,6 +227,41 @@ async fn ingest_plc_model(req: Request<Body>) -> Response<Body> {
     let created_at = Utc::now().timestamp_millis();
 
     let c = client();
+
+    // 엣지는 폴링할 때마다 이걸 보낸다. 모델이 그대로인데도 전부 `jobs`에
+    // 넣으면 하루 7천여 행이 쌓인다 (실측 1,108:1 중복). 살아있음 표시는
+    // plc_state 한 행에 덮어쓰고, `jobs`에는 실제 전환만 남긴다.
+    let prev = c.get_plc_state(&inp.edge_id).await.ok().flatten();
+    let changed = prev
+        .as_ref()
+        .and_then(|p| p.model_no.clone())
+        .map(|m| m != inp.model_no)
+        .unwrap_or(true);
+
+    let _ = c
+        .upsert_plc_state(&paintrobot_repo_coredb::PlcStateRow {
+            edge_id: inp.edge_id.clone(),
+            model_no: Some(inp.model_no.clone()),
+            plc_ts: Some(plc_ts.timestamp_millis()),
+            // 카메라 쪽은 건드리지 않는다 — 이전 값을 그대로 이어 쓴다.
+            camera_model_no: prev.as_ref().and_then(|p| p.camera_model_no.clone()),
+            camera_ts: prev.as_ref().and_then(|p| p.camera_ts),
+            updated_at: created_at,
+        })
+        .await;
+
+    if !changed {
+        return json_response(
+            StatusCode::OK,
+            &serde_json::json!({
+                "accepted": 0,
+                "duplicates": 0,
+                "unchanged": 1,
+                "current_model": inp.model_no,
+            }),
+        );
+    }
+
     match c.get_job(&event_id).await {
         Ok(Some(_)) => {
             return json_response(
@@ -250,11 +302,35 @@ async fn plc_current() -> Response<Body> {
 }
 
 async fn latest_plc_state() -> Result<PlcCurrent, RepoError> {
+    let c = client();
+
+    // plc_state는 엣지당 한 행이라 조회가 상수 시간이다. 예전에는 오늘치
+    // `jobs`를 전부 훑어 최신값을 골랐는데, PLC 폴링 행이 그 스캔을 수천 배로
+    //부풀렸다.
+    //
+    // 마이그레이션(006) 전에 이 빌드가 올라가도 죽지 않도록, 테이블이 없거나
+    // 비어 있으면 예전 스캔으로 되돌아간다.
+    if let Ok(states) = c.scan_plc_states(1_000).await {
+        if let Some(latest) = states
+            .iter()
+            .max_by_key(|s| s.plc_ts.unwrap_or(s.updated_at))
+        {
+            return Ok(PlcCurrent {
+                model_no: latest.model_no.clone(),
+                edge_id: Some(latest.edge_id.clone()),
+                plc_ts: latest.plc_ts,
+                event_id: None,
+                camera_model_no: latest.camera_model_no.clone(),
+                camera_ts: latest.camera_ts,
+            });
+        }
+    }
+
     let today = Utc::now()
         .with_timezone(&config::kst())
         .format("%Y-%m-%d")
         .to_string();
-    let rows = client().scan_jobs_for_date(&today, 100_000).await?;
+    let rows = c.scan_jobs_for_date(&today, 100_000).await?;
     Ok(latest_plc_state_from_rows(&rows))
 }
 

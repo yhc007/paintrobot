@@ -18,6 +18,7 @@ mod coatings;
 mod cql;
 mod http;
 mod jobs;
+mod plc_state;
 mod recipes;
 mod weather;
 
@@ -29,6 +30,7 @@ pub use http::ReqwestTransport;
 #[cfg(target_family = "wasm")]
 pub use http::WasiTransport;
 pub use jobs::JobRow;
+pub use plc_state::PlcStateRow;
 pub use recipes::RecipeRow;
 pub use weather::WeatherRow;
 

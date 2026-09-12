@@ -1,9 +1,9 @@
 [Unit]
-Description=10분마다 일별 집계 롤업
+Description=30분마다 일별 집계 롤업 (정합 추정 + 증분 누적 교정)
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=10min
+OnUnitActiveSec=30min
 AccuracySec=30s
 
 [Install]

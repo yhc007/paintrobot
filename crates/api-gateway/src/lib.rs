@@ -148,6 +148,19 @@ async fn ingest_job(req: Request<Body>) -> Response<Body> {
         Ok(()) => {
             // 카메라 인식도 plc_state에 반영해 `/plc/current`가 최신값을 준다.
             // 실패해도 수집 자체를 실패로 돌리지 않는다 — 여기는 파생 상태다.
+            // 집계는 수집 시점에 한 대씩 더한다. plc_only는 차가 아니라
+            // PLC 상태라 세지 않는다 — `domain::aggregate`와 같은 기준.
+            if status.as_str() != "plc_only" {
+                if let Some(model) = domain::canonical_model(&job) {
+                    let ts = job
+                        .camera_ts
+                        .or(job.plc_ts)
+                        .map(|t| t.timestamp_millis())
+                        .unwrap_or(created_at);
+                    bump_rollup(&work_date, model, status.as_str(), ts).await;
+                }
+            }
+
             if let Some(cam) = job.camera_model_no.as_deref().filter(|m| !m.is_empty()) {
                 let prev = c.get_plc_state(&job.edge_id).await.ok().flatten();
                 let _ = c
@@ -674,6 +687,89 @@ async fn stats_bounds() -> Response<Body> {
             &serde_json::json!({ "first_date": null, "last_date": null }),
         ),
         Err(e) => repo_error_response(&e),
+    }
+}
+
+/// 작업 1건을 그날 롤업에 더한다.
+///
+/// 예전에는 타이머가 5분마다 하루치를 통째로 스캔해 롤업을 다시 만들었다.
+/// 그 스캔이 도는 8초 동안 다른 조회가 전부 대기했다 — `jobs`의 PK가
+/// event_id라 날짜로 좁힐 수 없어서 매번 전체를 훑는다. 여기서 한 대씩
+/// 더하면 그 스캔 없이 집계가 실시간으로 따라온다.
+///
+/// `reconcile`은 건드리지 않는다. 지연 오프셋을 하루 전체에서 추정하는
+/// 값이라 한 대씩 더할 수 없다 — 타이머가 계속 맡는다.
+///
+/// CoreDB에 CAS가 없어 읽고-고쳐-쓰는 사이 동시 수집이 겹치면 한 건이 샐 수
+/// 있다. 타이머가 주기적으로 전체 재계산해 덮으므로 어긋남은 그때 교정된다.
+async fn bump_rollup(date: &str, model_no: &str, match_status: &str, ts_ms: i64) {
+    let c = client();
+    let Ok(Some(row)) = c.get_rollup(date).await else {
+        // 그날 롤업이 아직 없으면 손대지 않는다. 타이머가 처음 한 번은
+        // 전체 스캔으로 만들어야 한다.
+        return;
+    };
+    let Ok(mut payload) = serde_json::from_str::<serde_json::Value>(&row.payload) else {
+        return;
+    };
+
+    // 1) 일별 집계
+    if let Some(st) = payload.get_mut("stats") {
+        if let Ok(mut stats) = serde_json::from_value::<DailyStats>(st.clone()) {
+            stats.total_jobs += 1;
+            let is_mismatch = match_status == "mismatch";
+            if is_mismatch {
+                stats.mismatch_jobs += 1;
+            }
+            match stats.models.iter_mut().find(|m| m.model_no == model_no) {
+                Some(m) => {
+                    m.job_count += 1;
+                    if is_mismatch {
+                        m.mismatch_count += 1;
+                    }
+                }
+                None => stats.models.push(paintrobot_schema::ModelCount {
+                    model_no: model_no.to_string(),
+                    job_count: 1,
+                    mismatch_count: u64::from(is_mismatch),
+                }),
+            }
+            stats.models.sort_by(|a, b| a.model_no.cmp(&b.model_no));
+            if let Ok(v) = serde_json::to_value(&stats) {
+                *st = v;
+            }
+        }
+    }
+
+    // 2) 혼류 지표 — 런 목록에 한 대를 덧붙이고 파생값만 다시 계산
+    if let Some(mfv) = payload.get_mut("mixflow") {
+        let mut runs: Vec<domain::ProductionRun> = mfv
+            .get("runs")
+            .and_then(|r| r.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|r| {
+                        Some(domain::ProductionRun {
+                            model_no: r.get("model_no")?.as_str()?.to_string(),
+                            count: r.get("count")?.as_u64()? as u32,
+                            start_ms: r.get("start_ms")?.as_i64()?,
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        domain::push_unit(&mut runs, ts_ms, model_no);
+        *mfv = mixflow_json(date, &domain::mix_flow_from_runs(runs));
+    }
+
+    if let Ok(body) = serde_json::to_string(&payload) {
+        let _ = c
+            .upsert_rollup(&paintrobot_repo_coredb::RollupRow {
+                work_date: date.to_string(),
+                payload: body,
+                updated_at: Utc::now().timestamp_millis(),
+            })
+            .await;
     }
 }
 
@@ -1374,7 +1470,7 @@ fn stream_live() -> Response<Body> {
         // 둘 다 단일 키 조회다. 예전처럼 스캔하지 않는다.
         //
         // PLC 상태는 수집할 때마다 갱신되므로 실시간 그대로다. 집계는 롤업
-        // 주기만큼(최대 10분) 늦을 수 있는데, 2초마다 전체 스캔을 돌려 DB를
+        // 주기만큼(최대 5분) 늦을 수 있는데, 2초마다 전체 스캔을 돌려 DB를
         // 막는 것보다는 낫다. 롤업이 아직 없으면 `stats`를 아예 빼고 보낸다 —
         // 화면은 자기 쿼리로 받은 값을 유지한다.
         let plc = latest_plc_state().await.ok();

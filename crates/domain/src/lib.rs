@@ -305,20 +305,25 @@ pub struct MixFlowStats {
     pub runs: Vec<ProductionRun>,
 }
 
-/// 투입 순서에서 혼류 지표를 뽑는다. 입력은 시간 오름차순.
-pub fn mix_flow(seq: &[(i64, String)]) -> MixFlowStats {
-    let mut runs: Vec<ProductionRun> = Vec::new();
-    for (ts, model) in seq {
-        match runs.last_mut() {
-            Some(r) if r.model_no == *model => r.count += 1,
-            _ => runs.push(ProductionRun {
-                model_no: model.clone(),
-                count: 1,
-                start_ms: *ts,
-            }),
-        }
+/// 런 목록에 한 대를 덧붙인다. 앞 차와 모델이 같으면 마지막 런이 늘고,
+/// 다르면 새 런이 열린다.
+///
+/// 수집 시점에 집계를 증분으로 갱신하려고 분리했다. 하루치를 다시 스캔하지
+/// 않고 이 함수와 `mix_flow_from_runs`만으로 최신 상태를 만들 수 있다.
+pub fn push_unit(runs: &mut Vec<ProductionRun>, ts_ms: i64, model_no: &str) {
+    match runs.last_mut() {
+        Some(r) if r.model_no == model_no => r.count += 1,
+        _ => runs.push(ProductionRun {
+            model_no: model_no.to_string(),
+            count: 1,
+            start_ms: ts_ms,
+        }),
     }
-    let units = seq.len() as u32;
+}
+
+/// 런 목록만으로 파생값을 다시 계산한다. 원본 시퀀스가 없어도 된다.
+pub fn mix_flow_from_runs(runs: Vec<ProductionRun>) -> MixFlowStats {
+    let units: u32 = runs.iter().map(|r| r.count).sum();
     let changeovers = runs.len().saturating_sub(1) as u32;
     let mut distinct: Vec<&str> = runs.iter().map(|r| r.model_no.as_str()).collect();
     distinct.sort_unstable();
@@ -341,6 +346,15 @@ pub fn mix_flow(seq: &[(i64, String)]) -> MixFlowStats {
         singles: runs.iter().filter(|r| r.count == 1).count() as u32,
         runs,
     }
+}
+
+/// 투입 순서에서 혼류 지표를 뽑는다. 입력은 시간 오름차순.
+pub fn mix_flow(seq: &[(i64, String)]) -> MixFlowStats {
+    let mut runs: Vec<ProductionRun> = Vec::new();
+    for (ts, model) in seq {
+        push_unit(&mut runs, *ts, model);
+    }
+    mix_flow_from_runs(runs)
 }
 
 #[cfg(test)]
@@ -500,6 +514,34 @@ mod tests {
         assert_eq!(s.avg_run, 0.0);
         assert_eq!(s.changeover_rate, 0.0);
         assert!(s.runs.is_empty());
+    }
+
+    /// 증분으로 한 대씩 쌓은 결과가 한 번에 계산한 것과 같아야 한다.
+    /// 수집 시점 갱신과 타이머의 전체 재계산이 어긋나면 화면이 흔들린다.
+    #[test]
+    fn incremental_matches_full_recompute() {
+        let models = ["1", "1", "2", "1", "1", "5", "5", "6", "6", "6", "2"];
+        let full = mix_flow(&seq(&models));
+
+        let mut runs: Vec<ProductionRun> = Vec::new();
+        for (i, m) in models.iter().enumerate() {
+            push_unit(&mut runs, i as i64 * 60_000, m);
+        }
+        let inc = mix_flow_from_runs(runs);
+
+        assert_eq!(inc, full);
+    }
+
+    #[test]
+    fn push_unit_opens_a_run_only_on_change() {
+        let mut runs = Vec::new();
+        push_unit(&mut runs, 0, "1");
+        push_unit(&mut runs, 1, "1");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].count, 2);
+        push_unit(&mut runs, 2, "2");
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[1].start_ms, 2);
     }
 
     // ── 지연 상관 ──────────────────────────────────────────────────────

@@ -24,7 +24,7 @@ url = "2"
 
 # WASI Preview 2 — used by api-gateway and repo-coredb/weather-client
 # for outbound HTTP and serving HTTP via wasi:http/proxy.
-wstd = "0.6"
+wstd = "0.6.8"
 http-body-util = "0.1"
 
 # Internal crates

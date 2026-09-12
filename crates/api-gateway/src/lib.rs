@@ -25,8 +25,40 @@ fn client() -> CoreDbClient<WasiTransport> {
     CoreDbClient::new(WasiTransport::new(), config::coredb_url(), config::coredb_keyspace())
 }
 
-#[wstd::http_server]
-async fn main(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
+// `#[wstd::http_server]` 매크로를 쓰지 않고 직접 구현한다.
+//
+// 매크로가 만드는 코드는 응답 전송 결과를 `unwrap()` 한다
+// (wstd-macro/src/lib.rs:140, 0.6.8에도 그대로다). 클라이언트가 먼저 끊으면
+// 그 자리에서 패닉하는데, SSE 스트림 특성상 탭을 닫을 때마다 발생한다 —
+// 실제로 로그에 패닉이 15,949건 쌓여 16MB가 됐고 진짜 오류가 묻혔다.
+//
+// 여기서는 전송 실패를 정상 종료로 다룬다. 클라이언트가 끊은 건 오류가 아니다.
+struct Server;
+
+impl wstd::__internal::wasip2::exports::http::incoming_handler::Guest for Server {
+    fn handle(
+        request: wstd::__internal::wasip2::http::types::IncomingRequest,
+        response_out: wstd::__internal::wasip2::exports::http::incoming_handler::ResponseOutparam,
+    ) {
+        let responder = wstd::http::server::Responder::new(response_out);
+        wstd::runtime::block_on(async move {
+            match wstd::http::request::try_from_incoming(request) {
+                Ok(req) => match route(req).await {
+                    Ok(response) => {
+                        // 여기가 매크로에서 unwrap이던 자리.
+                        let _ = responder.respond(response).await;
+                    }
+                    Err(err) => responder.fail(err),
+                },
+                Err(err) => responder.fail(err),
+            }
+        })
+    }
+}
+
+wstd::__internal::wasip2::http::proxy::export!(Server with_types_in wstd::__internal::wasip2);
+
+async fn route(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
     let method = req.method().clone();
     let path = req.uri().path().to_owned();
     let query = req.uri().query().unwrap_or("").to_owned();

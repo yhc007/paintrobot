@@ -20,6 +20,7 @@ mod http;
 mod jobs;
 mod plc_state;
 mod recipes;
+mod rollup;
 mod weather;
 
 pub use coatings::CoatingRow;
@@ -32,6 +33,7 @@ pub use http::WasiTransport;
 pub use jobs::JobRow;
 pub use plc_state::PlcStateRow;
 pub use recipes::RecipeRow;
+pub use rollup::RollupRow;
 pub use weather::WeatherRow;
 
 use serde::Deserialize;

@@ -1,0 +1,7 @@
+[Unit]
+Description=Paintrobot 일별 집계 롤업 (daily_rollup 갱신)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/root1/Work/Paintrobot/ops/rollup/paintrobot-rollup.sh

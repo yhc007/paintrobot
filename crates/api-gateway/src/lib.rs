@@ -44,6 +44,7 @@ async fn main(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
         ("GET", "/api/v1/stats/range") => Ok(stats_range(&query).await),
         ("GET", "/api/v1/stats/bounds") => Ok(stats_bounds().await),
         ("GET", "/api/v1/stats/mixflow") => Ok(stats_mixflow(&query).await),
+        ("POST", "/api/v1/stats/rollup") => Ok(build_rollup(&query, req.headers()).await),
         // 관찰용(읽기 전용). 쓰기는 아래 POST + dry_run=false.
         ("GET", "/api/v1/stats/reconcile") => Ok(reconcile_jobs(&query, None).await),
         ("POST", "/api/v1/jobs/reconcile") => {
@@ -692,6 +693,9 @@ async fn stats_daily(query: &str) -> Response<Body> {
 }
 
 async fn stats_for_date(date: &str) -> Response<Body> {
+    if let Some(v) = rollup_part(date, "stats").await {
+        return json_response(StatusCode::OK, &v);
+    }
     let c = client();
     match c.agg_rows_for_date(date, 100_000).await {
         Ok(rows) => {
@@ -757,6 +761,40 @@ async fn stats_range(query: &str) -> Response<Body> {
         Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
     };
 
+    // 미리 계산된 일별 집계가 있으면 그걸로 끝낸다. 롤업은 날짜당 한 행이라
+    // 구간 조회가 수백 행 스캔에 그친다.
+    if let Ok(rollups) = c.scan_rollups(&from, &to, 1_000).await {
+        if !rollups.is_empty() {
+            use std::collections::BTreeMap as RMap;
+            let mut by_date: RMap<String, DailyStats> = RMap::new();
+            for r in &rollups {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&r.payload) {
+                    if let Some(st) = v.get("stats") {
+                        if let Ok(d) = serde_json::from_value::<DailyStats>(st.clone()) {
+                            by_date.insert(r.work_date.clone(), d);
+                        }
+                    }
+                }
+            }
+            if !by_date.is_empty() {
+                // 요청한 날짜는 롤업이 없어도 0으로 채워 전부 응답한다.
+                let daily: Vec<DailyStats> = dates
+                    .iter()
+                    .map(|d| {
+                        by_date.remove(d).unwrap_or_else(|| {
+                            domain::aggregate(d.clone(), Vec::new())
+                        })
+                    })
+                    .collect();
+                return match group_by.as_str() {
+                    "day" => json_response(StatusCode::OK, &daily),
+                    "model" => json_response(StatusCode::OK, &sum_by_model(&daily)),
+                    _ => json_error(StatusCode::BAD_REQUEST, "group_by must be day|model"),
+                };
+            }
+        }
+    }
+
     // One ranged read, not one per day: CoreDB scans the whole `jobs` table for
     // every statement, so N per-day queries cost N full scans (a 7-day window
     // took ~24s). Bucket the rows here instead.
@@ -788,6 +826,28 @@ async fn stats_range(query: &str) -> Response<Body> {
 /// the range onto the data instead of showing a blank chart.
 async fn stats_bounds() -> Response<Body> {
     let c = client();
+
+    // 롤업은 날짜당 한 행이라 전부 훑어도 수백 행이다. `jobs` 전체 스캔과
+    // 비교할 바가 아니다. 집계가 0인 날은 경계로 치지 않는다 — 예전 구현과
+    // 같은 기준이다.
+    if let Ok(dates) = c.all_rollup_dates(10_000).await {
+        let mut counted: Vec<String> = Vec::new();
+        for d in dates {
+            if let Some(v) = rollup_part(&d, "stats").await {
+                if v.get("total_jobs").and_then(|n| n.as_u64()).unwrap_or(0) > 0 {
+                    counted.push(d);
+                }
+            }
+        }
+        counted.sort();
+        if let (Some(first), Some(last)) = (counted.first(), counted.last()) {
+            return json_response(
+                StatusCode::OK,
+                &serde_json::json!({ "first_date": first, "last_date": last }),
+            );
+        }
+    }
+
     match c.job_date_bounds(1_000_000).await {
         Ok(Some((first, last))) => json_response(
             StatusCode::OK,
@@ -801,6 +861,105 @@ async fn stats_bounds() -> Response<Body> {
     }
 }
 
+/// 미리 계산해둔 하루치 집계에서 한 조각을 꺼낸다.
+///
+/// 없으면 None — 호출측이 예전처럼 직접 계산한다. 롤업 타이머가 아직 안 돌았거나
+/// 마이그레이션 전이어도 화면이 비지 않게 하기 위해서다.
+async fn rollup_part(date: &str, key: &str) -> Option<serde_json::Value> {
+    let r = client().get_rollup(date).await.ok()??;
+    let v: serde_json::Value = serde_json::from_str(&r.payload).ok()?;
+    v.get(key).cloned()
+}
+
+/// 하루치 행에서 지연 상관의 입력 두 개를 만든다.
+///
+/// 대상: 카메라가 본 차 중 PLC 타임스탬프가 없는 행. `camera_only`뿐 아니라
+/// 이 배치가 이미 판정한 행도 다시 집는다 — 엣지가 직접 짝지어 보낸 행은
+/// `plc_ts`가 있고 여기서 덮어쓴 행은 없다는 차이로 구분한다. 그래야 오프셋
+/// 로직이나 신뢰도 기준을 바꿨을 때 재실행만으로 다시 계산된다.
+fn reconcile_inputs(
+    rows: &[paintrobot_repo_coredb::JobRow],
+) -> (Vec<domain::PlcState>, Vec<domain::CamEvent>) {
+    let mut plc_events: Vec<domain::PlcState> = rows
+        .iter()
+        .filter(|r| r.match_status == "plc_only")
+        .filter_map(|r| {
+            Some(domain::PlcState {
+                ts_ms: r.plc_ts.filter(|t| *t > 0)?,
+                model_no: r.plc_model_no.clone().filter(|m| !m.is_empty())?,
+            })
+        })
+        .collect();
+    plc_events.sort_by_key(|p| p.ts_ms);
+    let timeline = domain::plc_timeline(&plc_events);
+
+    let mut cams: Vec<domain::CamEvent> = rows
+        .iter()
+        .filter(|r| {
+            matches!(r.match_status.as_str(), "camera_only" | "matched" | "mismatch")
+                && r.plc_ts.unwrap_or(0) == 0
+        })
+        .filter_map(|r| {
+            Some(domain::CamEvent {
+                event_id: r.event_id.clone(),
+                ts_ms: r.camera_ts.filter(|t| *t > 0)?,
+                model_no: r.camera_model_no.clone().filter(|m| !m.is_empty())?,
+                confidence: r.confidence.unwrap_or(0.0),
+            })
+        })
+        .collect();
+    cams.sort_by_key(|c| c.ts_ms);
+
+    (timeline, cams)
+}
+
+fn mixflow_json(date: &str, s: &domain::MixFlowStats) -> serde_json::Value {
+    serde_json::json!({
+        "work_date": date,
+        "units": s.units,
+        "models": s.models,
+        "changeovers": s.changeovers,
+        "changeover_rate": s.changeover_rate,
+        "avg_run": s.avg_run,
+        "max_run": s.max_run,
+        "singles": s.singles,
+        "runs": s.runs.iter().map(|r| serde_json::json!({
+            "model_no": r.model_no,
+            "count": r.count,
+            "start_ms": r.start_ms,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn reconcile_json(
+    date: &str,
+    rep: &domain::ReconcileReport,
+    min_confidence: f64,
+    dry_run: bool,
+    written: u32,
+    write_errors: u32,
+) -> serde_json::Value {
+    serde_json::json!({
+        "work_date": date,
+        "dry_run": dry_run,
+        "min_confidence": min_confidence,
+        "offset_secs": rep.offset_secs,
+        "plc_states": rep.plc_states,
+        "camera_events": rep.camera_events,
+        "matched": rep.matched,
+        "mismatch": rep.mismatch,
+        "skipped_low_confidence": rep.skipped_low_confidence,
+        "skipped_no_plc": rep.skipped_no_plc,
+        "after_changeover": {
+            "first_unit": bucket_json(&rep.first_unit),
+            "early_units": bucket_json(&rep.early_units),
+            "steady_units": bucket_json(&rep.steady_units),
+        },
+        "written": written,
+        "write_errors": write_errors,
+    })
+}
+
 fn bucket_json(b: &domain::MatchBucket) -> serde_json::Value {
     serde_json::json!({
         "matched": b.matched,
@@ -808,6 +967,104 @@ fn bucket_json(b: &domain::MatchBucket) -> serde_json::Value {
         "total": b.total(),
         // 표본이 없으면 null. 0으로 내려보내면 화면에서 "이상 없음"으로 읽힌다.
         "mismatch_rate": b.mismatch_rate(),
+    })
+}
+
+/// 하루치 집계를 미리 계산해 `daily_rollup`에 한 행으로 넣는다.
+///
+/// `jobs`의 PK가 `event_id`라 행 하나가 파티션 하나고, `WHERE work_date=...`
+/// 스캔은 수십만 번의 개별 파티션 읽기가 된다 (실측 282초). 대시보드가 읽는
+/// 값은 전부 일별 집계라, 그 비싼 스캔을 요청마다가 아니라 주기적으로 한 번만
+/// 치르고 결과를 날짜당 한 행에 담아둔다.
+///
+/// 오늘치는 계속 바뀌므로 타이머가 주기적으로 다시 부른다.
+async fn build_rollup(query: &str, headers: &wstd::http::HeaderMap) -> Response<Body> {
+    if !check_edge_key(headers) {
+        return json_error(StatusCode::UNAUTHORIZED, "missing or invalid X-Edge-Key");
+    }
+    let Some(date) = query_param(query, "date") else {
+        return json_error(StatusCode::BAD_REQUEST, "missing date");
+    };
+    if NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err() {
+        return json_error(StatusCode::BAD_REQUEST, "date must be YYYY-MM-DD");
+    }
+
+    let c = client();
+    // 하루에 딱 한 번만 스캔한다. 아래 세 집계가 전부 이 행들에서 나온다.
+    let rows = match c.scan_jobs_for_date(&date, 1_000_000).await {
+        Ok(r) => r,
+        Err(e) => return repo_error_response(&e),
+    };
+
+    let payload = rollup_payload(&date, &rows);
+    let updated_at = Utc::now().timestamp_millis();
+    let body = match serde_json::to_string(&payload) {
+        Ok(b) => b,
+        Err(e) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    };
+
+    match c
+        .upsert_rollup(&paintrobot_repo_coredb::RollupRow {
+            work_date: date.clone(),
+            payload: body,
+            updated_at,
+        })
+        .await
+    {
+        Ok(()) => json_response(
+            StatusCode::OK,
+            &serde_json::json!({
+                "work_date": date,
+                "rows_scanned": rows.len(),
+                "updated_at": updated_at,
+            }),
+        ),
+        Err(e) => repo_error_response(&e),
+    }
+}
+
+/// 하루치 행에서 대시보드가 쓰는 집계를 전부 뽑는다.
+///
+/// 셋을 한 행에 같이 담는 이유: 전부 같은 스캔 결과에서 나오므로 따로 계산할
+/// 이유가 없고, 대시보드도 한 번의 조회로 끝난다.
+fn rollup_payload(date: &str, rows: &[paintrobot_repo_coredb::JobRow]) -> serde_json::Value {
+    let agg: Vec<domain::AggRow> = rows
+        .iter()
+        .map(|r| domain::AggRow {
+            model_no: r
+                .plc_model_no
+                .clone()
+                .filter(|m| !m.is_empty())
+                .or_else(|| r.camera_model_no.clone().filter(|m| !m.is_empty()))
+                .unwrap_or_else(|| "(unknown)".to_string()),
+            match_status: r.match_status.clone(),
+        })
+        .collect();
+    let stats = domain::aggregate(date.to_string(), agg);
+
+    let mut seq: Vec<(i64, String)> = rows
+        .iter()
+        .filter(|r| r.match_status != "plc_only")
+        .filter_map(|r| {
+            let ts = r.camera_ts.filter(|t| *t > 0).or(r.plc_ts.filter(|t| *t > 0))?;
+            let model = r
+                .camera_model_no
+                .clone()
+                .filter(|m| !m.is_empty())
+                .or_else(|| r.plc_model_no.clone().filter(|m| !m.is_empty()))?;
+            Some((ts, model))
+        })
+        .collect();
+    seq.sort_by_key(|(ts, _)| *ts);
+    let mix = domain::mix_flow(&seq);
+
+    let (timeline, cams) = reconcile_inputs(rows);
+    let (_, rep) = domain::reconcile(&timeline, &cams, DEFAULT_MIN_CONFIDENCE);
+
+    serde_json::json!({
+        "stats": stats,
+        "mixflow": mixflow_json(date, &mix),
+        "reconcile": reconcile_json(date, &rep, DEFAULT_MIN_CONFIDENCE, true, 0, 0),
     })
 }
 
@@ -822,6 +1079,10 @@ async fn stats_mixflow(query: &str) -> Response<Body> {
     };
     if NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err() {
         return json_error(StatusCode::BAD_REQUEST, "date must be YYYY-MM-DD");
+    }
+
+    if let Some(v) = rollup_part(&date, "mixflow").await {
+        return json_response(StatusCode::OK, &v);
     }
 
     let c = client();
@@ -910,48 +1171,21 @@ async fn reconcile_jobs(
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(DEFAULT_MIN_CONFIDENCE);
 
+    // 관찰용 조회는 미리 계산된 값으로 끝낸다. 쓰기 요청은 최신 상태가
+    // 필요하므로 항상 다시 계산한다.
+    if !may_write {
+        if let Some(v) = rollup_part(&date, "reconcile").await {
+            return json_response(StatusCode::OK, &v);
+        }
+    }
+
     let c = client();
     let rows = match c.scan_jobs_for_date(&date, 1_000_000).await {
         Ok(r) => r,
         Err(e) => return repo_error_response(&e),
     };
 
-    // PLC 상태 이벤트 → 시간순 → 연속 중복 압축
-    let mut plc_events: Vec<domain::PlcState> = rows
-        .iter()
-        .filter(|r| r.match_status == "plc_only")
-        .filter_map(|r| {
-            Some(domain::PlcState {
-                ts_ms: r.plc_ts.filter(|t| *t > 0)?,
-                model_no: r.plc_model_no.clone().filter(|m| !m.is_empty())?,
-            })
-        })
-        .collect();
-    plc_events.sort_by_key(|p| p.ts_ms);
-    let timeline = domain::plc_timeline(&plc_events);
-
-    // 대상: 카메라가 본 차 중 PLC 타임스탬프가 없는 행.
-    //
-    // `camera_only`뿐 아니라 이 배치가 이미 판정한 행도 다시 집는다. 엣지가
-    // 직접 짝지어 보낸 행은 `plc_ts`가 있고, 여기서 덮어쓴 행은 없다 — 그
-    // 차이로 구분한다. 그래야 오프셋 로직이나 신뢰도 기준을 바꿨을 때
-    // 재실행만으로 다시 계산된다.
-    let mut cams: Vec<domain::CamEvent> = rows
-        .iter()
-        .filter(|r| {
-            matches!(r.match_status.as_str(), "camera_only" | "matched" | "mismatch")
-                && r.plc_ts.unwrap_or(0) == 0
-        })
-        .filter_map(|r| {
-            Some(domain::CamEvent {
-                event_id: r.event_id.clone(),
-                ts_ms: r.camera_ts.filter(|t| *t > 0)?,
-                model_no: r.camera_model_no.clone().filter(|m| !m.is_empty())?,
-                confidence: r.confidence.unwrap_or(0.0),
-            })
-        })
-        .collect();
-    cams.sort_by_key(|c| c.ts_ms);
+    let (timeline, cams) = reconcile_inputs(&rows);
 
     let (decisions, report) = domain::reconcile(&timeline, &cams, min_confidence);
 

@@ -1,0 +1,10 @@
+[Unit]
+Description=10분마다 일별 집계 롤업
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

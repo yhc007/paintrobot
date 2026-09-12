@@ -453,11 +453,10 @@ async fn ingest_recipe(req: Request<Body>) -> Response<Body> {
 /// Most recent recipe posted today (optionally filtered by `?edge_id=`).
 async fn recipe_current(query: &str) -> Response<Body> {
     let want_edge = query_param(query, "edge_id");
-    let today = Utc::now()
-        .with_timezone(&config::kst())
-        .format("%Y-%m-%d")
-        .to_string();
-    let rows = match client().scan_recipes_for_date(&today, 100_000).await {
+    // 날짜로 거르지 않는다. 레시피는 차종이 바뀔 때만 들어오므로, 당일분만
+    // 보면 차종을 안 바꾼 날에는 화면이 빈다. 현장에서는 마지막으로 받은
+    // 레시피가 계속 유효하다.
+    let rows = match client().scan_all_recipes(100_000).await {
         Ok(r) => r,
         Err(e) => return repo_error_response(&e),
     };

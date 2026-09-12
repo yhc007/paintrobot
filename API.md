@@ -31,7 +31,7 @@
 | POST | `/api/v1/jobs` | ✅ | **카메라/PLC 인식 결과 수신 (실시간)** |
 | POST | `/api/v1/jobs/batch` | ✅ | 네트워크 복구 시 일괄 업로드 |
 | POST | `/api/v1/plc/recipe` | ✅ | **차종 도장 레시피 수신 (멱등 upsert)** |
-| GET  | `/api/v1/plc/recipe/current` | ❌ | 오늘 마지막으로 수신한 레시피 (`?edge_id=` 필터) |
+| GET  | `/api/v1/plc/recipe/current` | ❌ | 마지막으로 수신한 레시피 (날짜 무관, `?edge_id=` 필터) |
 | POST | `/api/v1/coatings` | ✅ | 도막 두께 → 권장 분사압력 계산·저장 |
 | GET  | `/api/v1/stats/today` | ❌ | 오늘 모델별 카운트 |
 | GET  | `/api/v1/stats/daily?date=` | ❌ | 특정일 통계 |
@@ -289,8 +289,12 @@ curl -X POST http://192.168.10.30:18080/api/v1/plc/recipe \
 
 ### GET `/api/v1/plc/recipe/current` — 최신 레시피 조회 (인증 불필요)
 
-오늘 수신한 레시피 중 가장 최근 것을 반환. `?edge_id=edge-line-01` 로 라인 필터.
+**날짜 무관하게** 마지막으로 수신한 레시피를 반환. `?edge_id=edge-line-01` 로 라인 필터.
 저장된 `recipe` 오브젝트를 그대로 되돌려줍니다. 없으면 `{"model_no":null,"recipe":null}`.
+
+> 당일분만 보던 것을 전체로 바꿨다. 레시피는 차종이 바뀔 때만 들어오므로,
+> 차종을 안 바꾼 날에는 화면이 비어버렸다. 현장에서는 마지막으로 받은 레시피가
+> 계속 유효하다. 응답의 `work_date`·`received_at`으로 언제 받은 값인지 알 수 있다.
 
 ---
 

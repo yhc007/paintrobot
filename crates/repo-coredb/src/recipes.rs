@@ -66,6 +66,22 @@ impl<T: HttpTransport> CoreDbClient<T> {
 
     /// Scan every recipe currently active on the given work_date. Full scan —
     /// CoreDB has no secondary index.
+    /// 날짜 무관하게 전부 읽는다.
+    ///
+    /// 레시피는 차종이 바뀔 때만 들어오므로 행 수가 적다. 당일분만 보면
+    /// 차종을 안 바꾼 날에는 화면이 비는데, 현장에서는 마지막으로 받은
+    /// 레시피가 계속 유효하다.
+    pub async fn scan_all_recipes(&self, limit: u32) -> Result<Vec<RecipeRow>, RepoError> {
+        let cql = format!(
+            "SELECT event_id, edge_id, model_no, model_name, levels, recipe_json, received_at, work_date \
+             FROM {ks}.recipes LIMIT {n}",
+            ks = self.keyspace,
+            n = limit,
+        );
+        let rows = self.execute(&cql).await?;
+        rows.iter().map(decode_recipe).collect()
+    }
+
     pub async fn scan_recipes_for_date(
         &self,
         work_date: &str,

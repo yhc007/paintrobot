@@ -1353,8 +1353,12 @@ fn stream_live() -> Response<Body> {
     use wstd::http::body::Bytes;
     use wstd::time::Duration;
 
-    const INTERVAL_SECS: u64 = 2;
-    const MAX_ITERS: u32 = 1800; // ~1h
+    // 2초였다. 매 틱마다 `jobs` 전체를 스캔했는데, 그 스캔 한 번이 스캔 주기보다
+    // 오래 걸려서 현황 페이지를 열어두는 것만으로 큐가 무한히 쌓였다.
+    // 이제는 키 조회 두 번이라 싸지만, 밑에 깔린 값이 그렇게 자주 바뀌지도
+    // 않으므로 주기를 늘린다.
+    const INTERVAL_SECS: u64 = 5;
+    const MAX_ITERS: u32 = 720; // ~1h
 
     let stream = unfold(MAX_ITERS, |iters| async move {
         if iters == 0 {
@@ -1367,29 +1371,25 @@ fn stream_live() -> Response<Body> {
             .with_timezone(&config::kst())
             .format("%Y-%m-%d")
             .to_string();
-        let payload = match client().scan_jobs_for_date(&today, 100_000).await {
-            Ok(rows) => {
-                let plc = latest_plc_state_from_rows(&rows);
-                let agg_rows: Vec<paintrobot_domain::AggRow> = rows
-                    .iter()
-                    .map(|r| paintrobot_domain::AggRow {
-                        model_no: r
-                            .plc_model_no
-                            .clone()
-                            .filter(|s| !s.is_empty())
-                            .or_else(|| r.camera_model_no.clone().filter(|s| !s.is_empty()))
-                            .unwrap_or_else(|| "(unknown)".to_string()),
-                        match_status: r.match_status.clone(),
-                    })
-                    .collect();
-                let stats = domain::aggregate(today, agg_rows);
-                serde_json::to_string(&serde_json::json!({
-                    "stats": stats,
-                    "current_plc": plc,
-                }))
-                .unwrap_or_else(|_| "{}".to_string())
-            }
-            Err(_) => "{}".to_string(),
+        // 둘 다 단일 키 조회다. 예전처럼 스캔하지 않는다.
+        //
+        // PLC 상태는 수집할 때마다 갱신되므로 실시간 그대로다. 집계는 롤업
+        // 주기만큼(최대 10분) 늦을 수 있는데, 2초마다 전체 스캔을 돌려 DB를
+        // 막는 것보다는 낫다. 롤업이 아직 없으면 `stats`를 아예 빼고 보낸다 —
+        // 화면은 자기 쿼리로 받은 값을 유지한다.
+        let plc = latest_plc_state().await.ok();
+        let stats = rollup_part(&today, "stats").await;
+        let payload = match (stats, plc) {
+            (Some(st), Some(p)) => serde_json::to_string(&serde_json::json!({
+                "stats": st,
+                "current_plc": p,
+            }))
+            .unwrap_or_else(|_| "{}".to_string()),
+            (None, Some(p)) => serde_json::to_string(&serde_json::json!({
+                "current_plc": p,
+            }))
+            .unwrap_or_else(|_| "{}".to_string()),
+            _ => "{}".to_string(),
         };
         let frame = format!("event: stats\ndata: {payload}\n\n");
         Some((Ok::<_, Infallible>(Bytes::from(frame)), iters - 1))

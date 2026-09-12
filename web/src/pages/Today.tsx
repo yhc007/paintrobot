@@ -136,65 +136,59 @@ export default function Today() {
         <span className="page-note">기준일 {s.work_date} · 30초 주기 갱신 · 이벤트 스트림 연결</span>
       </div>
 
-      <section className="today-top">
-        <div className="today-kpis">
-          <PlcCard plc={cur} />
+      {/* 좌: 현황 정보 전부 · 우: 카메라. 카메라는 스크롤해도 계속 보이게 붙여둔다. */}
+      <section className="today-split">
+        <div className="today-main">
+          <div className="today-kpis">
+            <PlcCard plc={cur} />
 
-          <Blueprint
-            title="금일 생산 실적"
-            right={<div className="verdict idle">누계</div>}
-            foot={
-              <>
-                <span>모델 {s.models.length}종</span>
-                {top && <span>최다 {top.model_no} · {top.job_count}대</span>}
-                <span className="push">edge → paint.coreon.build</span>
-              </>
-            }
-          >
-            <div className="match-row">
-              <div className="gauge-value">
-                {s.total_jobs}
-                <span className="gauge-unit"> 대</span>
-              </div>
-              <div className="match-aside">
-                <div>정상 {s.total_jobs - s.mismatch_jobs}대</div>
-                <div>불일치 {s.mismatch_jobs}대</div>
-              </div>
-            </div>
-          </Blueprint>
-
-          <Blueprint
-            title="품질 이상 · 모델 불일치"
-            right={<div className={`verdict ${verdict.tone}`}>{verdict.label}</div>}
-            foot={
-              <>
-                <span>{verdict.foot}</span>
-                <span className="push">PLC 지시 ↔ 카메라 인식</span>
-              </>
-            }
-          >
-            <div className="match-row">
-              <div className={`gauge-value${verified ? (clean ? ' ok' : ' bad') : ''}`}>
-                {verified ? s.mismatch_jobs : est.data?.mismatch ?? '—'}
-                <span className="gauge-unit"> 건</span>
-              </div>
-              {!verified && (
-                <div className="match-aside">
-                  <div>추정 정합 {estRate === null ? '—' : `${estRate.toFixed(1)}%`}</div>
-                  <div>표본 {est.data?.matched ?? 0}+{est.data?.mismatch ?? 0}대</div>
+            <Blueprint
+              title="금일 생산 실적"
+              right={<div className="verdict idle">누계</div>}
+              foot={
+                <>
+                  <span>모델 {s.models.length}종</span>
+                  {top && <span>최다 {top.model_no} · {top.job_count}대</span>}
+                  <span className="push">edge → paint.coreon.build</span>
+                </>
+              }
+            >
+              <div className="match-row">
+                <div className="gauge-value">
+                  {s.total_jobs}
+                  <span className="gauge-unit"> 대</span>
                 </div>
-              )}
-            </div>
-          </Blueprint>
-        </div>
+                <div className="match-aside">
+                  <div>정상 {s.total_jobs - s.mismatch_jobs}대</div>
+                  <div>불일치 {s.mismatch_jobs}대</div>
+                </div>
+              </div>
+            </Blueprint>
 
-        <div className="today-side">
-          <Blueprint
-            title="투입구 카메라 · 실시간"
-            right={<a className="verdict idle" href="/live" style={{ textDecoration: 'none' }}>크게 보기</a>}
-          >
-            <LivePanel compact />
-          </Blueprint>
+            <Blueprint
+              title="품질 이상 · 모델 불일치"
+              right={<div className={`verdict ${verdict.tone}`}>{verdict.label}</div>}
+              foot={
+                <>
+                  <span>{verdict.foot}</span>
+                  <span className="push">PLC 지시 ↔ 카메라 인식</span>
+                </>
+              }
+            >
+              <div className="match-row">
+                <div className={`gauge-value${verified ? (clean ? ' ok' : ' bad') : ''}`}>
+                  {verified ? s.mismatch_jobs : est.data?.mismatch ?? '—'}
+                  <span className="gauge-unit"> 건</span>
+                </div>
+                {!verified && (
+                  <div className="match-aside">
+                    <div>추정 정합 {estRate === null ? '—' : `${estRate.toFixed(1)}%`}</div>
+                    <div>표본 {est.data?.matched ?? 0}+{est.data?.mismatch ?? 0}대</div>
+                  </div>
+                )}
+              </div>
+            </Blueprint>
+          </div>
 
           <Blueprint title="모델별 생산 순위 · 금일">
             {ranked.length === 0 && <div className="hint">아직 집계된 작업이 없습니다.</div>}
@@ -223,144 +217,153 @@ export default function Today() {
               </div>
             ))}
           </Blueprint>
-        </div>
-      </section>
 
-      <Blueprint
-        title="혼류 생산 · 금일"
-        right={
-          mf && mf.units > 0 ? (
-            <div className="verdict idle">{(mf.changeover_rate * 100).toFixed(0)}% 전환</div>
-          ) : undefined
-        }
-        foot={
-          mf && mf.units > 0 ? (
-            <>
-              <span>{mf.units}대 · 모델 {mf.models}종</span>
-              <span className="push">투입 순서 왼쪽 → 오른쪽</span>
-            </>
-          ) : undefined
-        }
-      >
-        {(!mf || mf.units === 0) && (
-          <div className="hint">
-            {mix.isLoading ? '집계 중…' : '아직 집계된 작업이 없습니다.'}
-          </div>
-        )}
-        {mf && mf.units > 0 && (
-          <>
-            <div className="summary-grid mix-grid">
-              <div className="summary-cell">
-                <div className="gauge-value mid">{mf.changeovers}</div>
-                <div className="gauge-label">모델 전환</div>
-              </div>
-              <div className="summary-cell">
-                <div className="gauge-value mid ice">{mf.avg_run.toFixed(1)}</div>
-                <div className="gauge-label">평균 연속 생산</div>
-              </div>
-              <div className="summary-cell">
-                <div className="gauge-value mid">{mf.max_run}</div>
-                <div className="gauge-label">최장 연속</div>
-              </div>
-              <div className="summary-cell">
-                <div className={`gauge-value mid${mf.singles > 0 ? ' warn' : ''}`}>{mf.singles}</div>
-                <div className="gauge-label">단독 투입 (1대)</div>
-              </div>
-            </div>
-
-            {ac && (
-              <div className="changeover">
-                <div className="changeover-head">
-                  <span>전환 직후 불일치 · 추정</span>
-                  <span className="push">런 위치 기준</span>
-                </div>
-                <div className="changeover-cells">
-                  {ac.map(b => (
-                    <div className="changeover-cell" key={b.label}>
-                      <div className={`gauge-value mid${rateTone(b.rate)}`}>
-                        {b.rate === null ? '—' : b.rate.toFixed(1)}
-                        {b.rate !== null && <span className="gauge-unit">%</span>}
-                      </div>
-                      <div className="gauge-label">{b.label}</div>
-                      <div className="changeover-n">{b.total}대</div>
-                    </div>
-                  ))}
-                </div>
-                <p className="hint changeover-note">
-                  차종이 바뀐 뒤 몇 대째인지로 나눈 값입니다. 정합 자체가 추정치라
-                  이 수치도 확정이 아닙니다 — 부스가 레시피를 못 따라간 것인지,
-                  이송 지연 추정의 오차인지는 아직 구분되지 않습니다.
-                </p>
+          <Blueprint
+            title="혼류 생산 · 금일"
+            right={
+              mf && mf.units > 0 ? (
+                <div className="verdict idle">{(mf.changeover_rate * 100).toFixed(0)}% 전환</div>
+              ) : undefined
+            }
+            foot={
+              mf && mf.units > 0 ? (
+                <>
+                  <span>{mf.units}대 · 모델 {mf.models}종</span>
+                  <span className="push">투입 순서 왼쪽 → 오른쪽</span>
+                </>
+              ) : undefined
+            }
+          >
+            {(!mf || mf.units === 0) && (
+              <div className="hint">
+                {mix.isLoading ? '집계 중…' : '아직 집계된 작업이 없습니다.'}
               </div>
             )}
+            {mf && mf.units > 0 && (
+              <>
+                <div className="summary-grid mix-grid">
+                  <div className="summary-cell">
+                    <div className="gauge-value mid">{mf.changeovers}</div>
+                    <div className="gauge-label">모델 전환</div>
+                  </div>
+                  <div className="summary-cell">
+                    <div className="gauge-value mid ice">{mf.avg_run.toFixed(1)}</div>
+                    <div className="gauge-label">평균 연속 생산</div>
+                  </div>
+                  <div className="summary-cell">
+                    <div className="gauge-value mid">{mf.max_run}</div>
+                    <div className="gauge-label">최장 연속</div>
+                  </div>
+                  <div className="summary-cell">
+                    <div className={`gauge-value mid${mf.singles > 0 ? ' warn' : ''}`}>{mf.singles}</div>
+                    <div className="gauge-label">단독 투입 (1대)</div>
+                  </div>
+                </div>
 
-            {/* 투입 순서 띠 — 폭이 대수에 비례한다. 합계 막대가 지우는
-                정보가 여기 남는다. */}
-            <div className="seqbar" onMouseLeave={() => setSeqTip(null)}>
-              {mf.runs.map((r, i) => (
-                <div
-                  key={`${r.start_ms}-${i}`}
-                  className={`seqbar-run${r.count === 1 ? ' single' : ''}`}
-                  style={{
-                    flexGrow: r.count,
-                    background: colorFor(palette, r.model_no),
-                  }}
-                  onMouseMove={e => setSeqTip({
-                    x: e.clientX, y: e.clientY, run: r,
-                    share: (r.count / mf.units) * 100,
-                  })}
-                  onMouseLeave={() => setSeqTip(null)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </Blueprint>
+                {ac && (
+                  <div className="changeover">
+                    <div className="changeover-head">
+                      <span>전환 직후 불일치 · 추정</span>
+                      <span className="push">런 위치 기준</span>
+                    </div>
+                    <div className="changeover-cells">
+                      {ac.map(b => (
+                        <div className="changeover-cell" key={b.label}>
+                          <div className={`gauge-value mid${rateTone(b.rate)}`}>
+                            {b.rate === null ? '—' : b.rate.toFixed(1)}
+                            {b.rate !== null && <span className="gauge-unit">%</span>}
+                          </div>
+                          <div className="gauge-label">{b.label}</div>
+                          <div className="changeover-n">{b.total}대</div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="hint changeover-note">
+                      차종이 바뀐 뒤 몇 대째인지로 나눈 값입니다. 정합 자체가 추정치라
+                      이 수치도 확정이 아닙니다 — 부스가 레시피를 못 따라간 것인지,
+                      이송 지연 추정의 오차인지는 아직 구분되지 않습니다.
+                    </p>
+                  </div>
+                )}
 
-      <Blueprint title="모델별 상세 · 금일">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>모델</th>
-                <th style={{ textAlign: 'right' }}>생산</th>
-                <th style={{ textAlign: 'right' }}>불일치</th>
-                <th style={{ textAlign: 'right' }}>불일치율</th>
-                <th style={{ textAlign: 'right' }}>비중</th>
-                <th>판정</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ranked.length === 0 && (
-                <tr><td className="empty-row" colSpan={6}>데이터 없음</td></tr>
-              )}
-              {ranked.map(m => {
-                const rate = m.job_count > 0 ? (m.mismatch_count / m.job_count) * 100 : 0;
-                const share = s.total_jobs > 0 ? (m.job_count / s.total_jobs) * 100 : 0;
-                return (
-                  <tr key={m.model_no}>
-                    <td>
-                      <span className="model">
-                        <i className="swatch" style={{ background: colorFor(palette, m.model_no) }} />
-                        {m.model_no}
-                      </span>
-                    </td>
-                    <td className="num">{m.job_count}</td>
-                    <td className={`num${m.mismatch_count > 0 ? ' bad' : ''}`}>{m.mismatch_count}</td>
-                    <td className="num">{rate.toFixed(1)}%</td>
-                    <td className="num">{share.toFixed(1)}%</td>
-                    <td>
-                      <span className={`verdict ${m.mismatch_count > 0 ? 'bad' : 'ok'}`}>
-                        {m.mismatch_count > 0 ? '이상' : '정상'}
-                      </span>
-                    </td>
+                {/* 투입 순서 띠 — 폭이 대수에 비례한다. 합계 막대가 지우는
+                    정보가 여기 남는다. */}
+                <div className="seqbar" onMouseLeave={() => setSeqTip(null)}>
+                  {mf.runs.map((r, i) => (
+                    <div
+                      key={`${r.start_ms}-${i}`}
+                      className={`seqbar-run${r.count === 1 ? ' single' : ''}`}
+                      style={{
+                        flexGrow: r.count,
+                        background: colorFor(palette, r.model_no),
+                      }}
+                      onMouseMove={e => setSeqTip({
+                        x: e.clientX, y: e.clientY, run: r,
+                        share: (r.count / mf.units) * 100,
+                      })}
+                      onMouseLeave={() => setSeqTip(null)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </Blueprint>
+
+          <Blueprint title="모델별 상세 · 금일">
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>모델</th>
+                    <th style={{ textAlign: 'right' }}>생산</th>
+                    <th style={{ textAlign: 'right' }}>불일치</th>
+                    <th style={{ textAlign: 'right' }}>불일치율</th>
+                    <th style={{ textAlign: 'right' }}>비중</th>
+                    <th>판정</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {ranked.length === 0 && (
+                    <tr><td className="empty-row" colSpan={6}>데이터 없음</td></tr>
+                  )}
+                  {ranked.map(m => {
+                    const rate = m.job_count > 0 ? (m.mismatch_count / m.job_count) * 100 : 0;
+                    const share = s.total_jobs > 0 ? (m.job_count / s.total_jobs) * 100 : 0;
+                    return (
+                      <tr key={m.model_no}>
+                        <td>
+                          <span className="model">
+                            <i className="swatch" style={{ background: colorFor(palette, m.model_no) }} />
+                            {m.model_no}
+                          </span>
+                        </td>
+                        <td className="num">{m.job_count}</td>
+                        <td className={`num${m.mismatch_count > 0 ? ' bad' : ''}`}>{m.mismatch_count}</td>
+                        <td className="num">{rate.toFixed(1)}%</td>
+                        <td className="num">{share.toFixed(1)}%</td>
+                        <td>
+                          <span className={`verdict ${m.mismatch_count > 0 ? 'bad' : 'ok'}`}>
+                            {m.mismatch_count > 0 ? '이상' : '정상'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Blueprint>
         </div>
-      </Blueprint>
+
+        <div className="today-cam">
+          <Blueprint
+            title="투입구 카메라 · 실시간"
+            right={<a className="verdict idle" href="/live" style={{ textDecoration: 'none' }}>크게 보기</a>}
+          >
+            <LivePanel compact />
+          </Blueprint>
+        </div>
+      </section>
 
       {seqTip && (
         <div

@@ -302,8 +302,22 @@ main {
   align-items: start;
 }
 
-/* 현황 최상단 — 왼쪽에 KPI 카드, 오른쪽에 투입구 카메라.
-   카메라는 16:9라 세로로 길어서, KPI 두 줄과 높이가 얼추 맞는다. */
+/* 현황 — 좌: 정보 전부, 우: 카메라.
+   카메라는 관제 중 계속 보고 있어야 하므로 스크롤을 따라오게 붙여둔다. */
+.today-split {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
+  align-items: start;
+}
+.today-main {
+  display: grid; gap: var(--pb-gap);
+  min-width: 0;
+}
+.today-cam {
+  position: sticky; top: calc(clamp(42px, 3.21vw, 57px) + var(--pb-gap));
+  min-width: 0;
+}
+
 .today-top {
   display: grid; gap: var(--pb-gap);
   grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
@@ -377,6 +391,9 @@ main {
 }
 @media (max-width: 1400px) {
   .today-top { grid-template-columns: 1fr; }
+  /* 카메라를 아래로 내리면 붙여둘 이유가 없다 */
+  .today-split { grid-template-columns: 1fr; }
+  .today-cam { position: static; }
 }
 @media (max-width: 1100px) {
   .row-2, .row-live { grid-template-columns: 1fr; }

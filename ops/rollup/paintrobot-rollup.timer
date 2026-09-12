@@ -1,9 +1,9 @@
 [Unit]
-Description=30분마다 일별 집계 롤업 (정합 추정 + 증분 누적 교정)
+Description=6시간마다 롤업 교정 (증분 누적의 드리프트 보정)
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=30min
+OnUnitActiveSec=6h
 AccuracySec=30s
 
 [Install]

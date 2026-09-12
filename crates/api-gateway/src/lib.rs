@@ -290,15 +290,19 @@ async fn ingest_plc_model(req: Request<Body>) -> Response<Body> {
     }
 
     match c.insert_job(&job, &work_date, status, created_at).await {
-        Ok(()) => json_response(
-            StatusCode::OK,
-            &serde_json::json!({
-                "accepted": 1,
-                "duplicates": 0,
-                "current_model": inp.model_no,
-                "event_id": event_id,
-            }),
-        ),
+        Ok(()) => {
+            // 전환이 정합 추정의 입력이므로 롤업에도 같이 넣는다.
+            bump_rollup_plc(&work_date, &inp.model_no, plc_ts.timestamp_millis()).await;
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({
+                    "accepted": 1,
+                    "duplicates": 0,
+                    "current_model": inp.model_no,
+                    "event_id": event_id,
+                }),
+            )
+        }
         Err(e) => repo_error_response(&e),
     }
 }
@@ -703,6 +707,22 @@ async fn stats_bounds() -> Response<Body> {
 /// CoreDB에 CAS가 없어 읽고-고쳐-쓰는 사이 동시 수집이 겹치면 한 건이 샐 수
 /// 있다. 타이머가 주기적으로 전체 재계산해 덮으므로 어긋남은 그때 교정된다.
 async fn bump_rollup(date: &str, model_no: &str, match_status: &str, ts_ms: i64) {
+    bump_rollup_inner(date, Some((model_no, match_status, ts_ms)), None).await
+}
+
+/// PLC 모델 전환 1건을 그날 롤업의 정합 입력에 더한다.
+///
+/// 전환일 때만 호출된다 — 폴링마다 오는 같은 모델은 `plc_state`가 받고
+/// `jobs`에도 남지 않는다.
+async fn bump_rollup_plc(date: &str, model_no: &str, ts_ms: i64) {
+    bump_rollup_inner(date, None, Some((model_no, ts_ms))).await
+}
+
+async fn bump_rollup_inner(
+    date: &str,
+    cam: Option<(&str, &str, i64)>,
+    plc: Option<(&str, i64)>,
+) {
     let c = client();
     let Ok(Some(row)) = c.get_rollup(date).await else {
         // 그날 롤업이 아직 없으면 손대지 않는다. 타이머가 처음 한 번은
@@ -713,8 +733,8 @@ async fn bump_rollup(date: &str, model_no: &str, match_status: &str, ts_ms: i64)
         return;
     };
 
-    // 1) 일별 집계
-    if let Some(st) = payload.get_mut("stats") {
+    // 1) 일별 집계 — 카메라가 본 차일 때만
+    if let (Some((model_no, match_status, _)), Some(st)) = (cam, payload.get_mut("stats")) {
         if let Ok(mut stats) = serde_json::from_value::<DailyStats>(st.clone()) {
             stats.total_jobs += 1;
             let is_mismatch = match_status == "mismatch";
@@ -742,7 +762,7 @@ async fn bump_rollup(date: &str, model_no: &str, match_status: &str, ts_ms: i64)
     }
 
     // 2) 혼류 지표 — 런 목록에 한 대를 덧붙이고 파생값만 다시 계산
-    if let Some(mfv) = payload.get_mut("mixflow") {
+    if let (Some((model_no, _, ts_ms)), Some(mfv)) = (cam, payload.get_mut("mixflow")) {
         let mut runs: Vec<domain::ProductionRun> = mfv
             .get("runs")
             .and_then(|r| r.as_array())
@@ -760,6 +780,36 @@ async fn bump_rollup(date: &str, model_no: &str, match_status: &str, ts_ms: i64)
             .unwrap_or_default();
         domain::push_unit(&mut runs, ts_ms, model_no);
         *mfv = mixflow_json(date, &domain::mix_flow_from_runs(runs));
+    }
+
+    // 3) 정합 추정 — 저장해둔 입력에 한 건을 더하고 전부 다시 계산한다.
+    //
+    //    지연 오프셋은 하루 전체를 보고 정하는 값이라 "한 건만 더하기"가
+    //    성립하지 않는다. 대신 입력을 롤업에 들고 있으므로 `jobs`를 훑지 않고
+    //    여기서 다시 돌릴 수 있다. 입력이 하루 100건 안쪽이라 비용이 없다시피
+    //    하다 — PLC 잡음을 plc_state로 걷어낸 덕이다.
+    {
+        let (mut timeline, mut cams) = inputs_from_json(payload.get("inputs"));
+        if let Some((model_no, _, ts_ms)) = cam {
+            cams.push(domain::CamEvent {
+                event_id: String::new(),
+                ts_ms,
+                model_no: model_no.to_string(),
+                // 신뢰도를 모르면 판정하지 않도록 0으로 둔다. 타이머가 전체
+                // 재계산할 때 실제 값으로 채워진다.
+                confidence: 0.0,
+            });
+            cams.sort_by_key(|c| c.ts_ms);
+        }
+        if let Some((model_no, ts_ms)) = plc {
+            timeline.push(domain::PlcState { ts_ms, model_no: model_no.to_string() });
+            timeline.sort_by_key(|p| p.ts_ms);
+            timeline = domain::plc_timeline(&timeline);
+        }
+        let (_, rep) = domain::reconcile(&timeline, &cams, DEFAULT_MIN_CONFIDENCE);
+        payload["reconcile"] =
+            reconcile_json(date, &rep, DEFAULT_MIN_CONFIDENCE, true, 0, 0);
+        payload["inputs"] = inputs_json(&timeline, &cams);
     }
 
     if let Ok(body) = serde_json::to_string(&payload) {
@@ -977,7 +1027,53 @@ fn rollup_payload(date: &str, rows: &[paintrobot_repo_coredb::JobRow]) -> serde_
         "stats": stats,
         "mixflow": mixflow_json(date, &mix),
         "reconcile": reconcile_json(date, &rep, DEFAULT_MIN_CONFIDENCE, true, 0, 0),
+        // 정합 추정의 입력을 같이 담아둔다. 이게 있으면 수집 때마다 `jobs`를
+        // 다시 훑지 않고 여기서 바로 다시 계산할 수 있다. PLC 잡음을 plc_state로
+        // 걷어낸 뒤로 전환은 하루 10건 안쪽, 카메라는 100건 안쪽이라 작다.
+        "inputs": inputs_json(&timeline, &cams),
     })
+}
+
+fn inputs_json(timeline: &[domain::PlcState], cams: &[domain::CamEvent]) -> serde_json::Value {
+    serde_json::json!({
+        "timeline": timeline.iter().map(|p| serde_json::json!({
+            "ts_ms": p.ts_ms, "model_no": p.model_no,
+        })).collect::<Vec<_>>(),
+        "cams": cams.iter().map(|c| serde_json::json!({
+            "event_id": c.event_id, "ts_ms": c.ts_ms,
+            "model_no": c.model_no, "confidence": c.confidence,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn inputs_from_json(v: Option<&serde_json::Value>) -> (Vec<domain::PlcState>, Vec<domain::CamEvent>) {
+    let arr = |k: &str| -> Vec<serde_json::Value> {
+        v.and_then(|x| x.get(k))
+            .and_then(|x| x.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    let timeline = arr("timeline")
+        .iter()
+        .filter_map(|p| {
+            Some(domain::PlcState {
+                ts_ms: p.get("ts_ms")?.as_i64()?,
+                model_no: p.get("model_no")?.as_str()?.to_string(),
+            })
+        })
+        .collect();
+    let cams = arr("cams")
+        .iter()
+        .filter_map(|c| {
+            Some(domain::CamEvent {
+                event_id: c.get("event_id")?.as_str()?.to_string(),
+                ts_ms: c.get("ts_ms")?.as_i64()?,
+                model_no: c.get("model_no")?.as_str()?.to_string(),
+                confidence: c.get("confidence").and_then(|x| x.as_f64()).unwrap_or(0.0),
+            })
+        })
+        .collect();
+    (timeline, cams)
 }
 
 /// 혼류 생산 지표 — 순서에서만 나오는 값들.

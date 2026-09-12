@@ -25,6 +25,7 @@ export default function App() {
   return (
     <div className="shell">
       <header className="header">
+        <div className="header-inner">
         <AppsMenu />
 
         <div className="brand">
@@ -47,6 +48,7 @@ export default function App() {
           <WeatherWidget />
           <Clock />
         </div>
+        </div>
       </header>
 
       <main>
@@ -54,8 +56,10 @@ export default function App() {
       </main>
 
       <footer>
-        <span>paint.coreon.build</span>
-        <span>현대정밀 R1 도장라인</span>
+        <div className="footer-inner">
+          <span>paint.coreon.build</span>
+          <span>현대정밀 R1 도장라인</span>
+        </div>
       </footer>
     </div>
   );

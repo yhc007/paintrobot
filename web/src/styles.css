@@ -33,6 +33,9 @@
   --pb-body: 'Barlow', 'Noto Sans KR', system-ui, sans-serif;
 
   /* — 관제 모니터(1920) 기준 눈금. 좁아지면 같은 비율로 줄어든다 — */
+  /* 다른 관제 화면(rspring · hdm)과 같은 본문 최대 폭. 초광폭 모니터에서
+     내용이 양끝으로 흩어지지 않게 가운데로 모은다. */
+  --pb-maxw: 1800px;
   --pb-gap: clamp(14px, 1.46vw, 28px);
   --pb-pad-x: clamp(16px, 2.08vw, 40px);
   --pb-hero: clamp(38px, 3.13vw, 60px);   /* 대형 수치 */
@@ -71,14 +74,19 @@ body::before {
 }
 
 /* ── 헤더 ─────────────────────────────────────────────────────── */
+/* 바탕과 아래 경계선은 전체 폭으로 두고 내용만 가둔다 — 경계선이 1800px에서
+   끊기면 헤더가 떠 보인다. hdm·rspring도 같은 구조다. */
 .header {
   position: sticky; top: 0; z-index: 100;
-  display: flex; align-items: center;
-  gap: clamp(14px, 1.67vw, 32px);
-  padding: 0 var(--pb-pad-x);
-  min-height: clamp(60px, 4.58vw, 88px);
   background: var(--pb-bg);
   border-bottom: 1px solid var(--pb-divider);
+}
+.header-inner {
+  display: flex; align-items: center;
+  gap: clamp(14px, 1.67vw, 24px);
+  max-width: var(--pb-maxw); margin: 0 auto;
+  padding: 0 var(--pb-pad-x);
+  min-height: clamp(60px, 4.58vw, 82px);
   flex-wrap: wrap;
 }
 
@@ -134,21 +142,21 @@ body::before {
 }
 .brand-name {
   font-family: var(--pb-display); font-weight: 600;
-  font-size: clamp(22px, 1.77vw, 34px);
+  font-size: clamp(22px, 1.77vw, 32px);
   letter-spacing: 0.02em; line-height: 1;
 }
 .brand-sub {
   font-family: var(--pb-label);
-  font-size: clamp(14px, 1.04vw, 20px);
+  font-size: clamp(14px, 1.04vw, 18px);
   letter-spacing: 0.08em; color: var(--pb-muted);
 }
 
 .nav-links { display: flex; gap: 4px; flex-wrap: wrap; }
 .nav-btn {
   font-family: var(--pb-label);
-  font-size: clamp(15px, 1.15vw, 22px);
+  font-size: clamp(15px, 1.15vw, 20px);
   letter-spacing: 0.1em;
-  padding: clamp(6px, 0.52vw, 10px) clamp(12px, 1.15vw, 22px);
+  padding: clamp(6px, 0.52vw, 9px) clamp(12px, 1.15vw, 18px);
   color: var(--pb-soft);
   background: transparent;
   border: 1px solid var(--pb-divider);
@@ -165,7 +173,7 @@ body::before {
 .header-right {
   margin-left: auto;
   display: flex; align-items: center;
-  gap: clamp(12px, 1.46vw, 28px);
+  gap: clamp(12px, 1.46vw, 24px);
   flex-wrap: wrap;
 }
 
@@ -197,7 +205,7 @@ body::before {
 
 .clock {
   font-family: var(--pb-display); font-weight: 500;
-  font-size: clamp(24px, 2.08vw, 40px);
+  font-size: clamp(24px, 2.08vw, 34px);
   letter-spacing: 0.02em; line-height: 1;
   min-width: 3.4em; text-align: right;
   font-variant-numeric: tabular-nums;
@@ -205,6 +213,8 @@ body::before {
 
 /* ── 본문 ─────────────────────────────────────────────────────── */
 main {
+  width: 100%;
+  max-width: var(--pb-maxw); margin: 0 auto;
   padding: var(--pb-gap) var(--pb-pad-x) clamp(20px, 2vw, 36px);
   flex: 1;
   display: flex; flex-direction: column; gap: var(--pb-gap);
@@ -738,9 +748,12 @@ input[type='date'] { color-scheme: dark; }
 
 /* ── 푸터 ─────────────────────────────────────────────────────── */
 footer {
-  display: flex; gap: 16px; justify-content: space-between; flex-wrap: wrap;
-  padding: 14px var(--pb-pad-x);
   border-top: 1px solid var(--pb-divider);
+}
+.footer-inner {
+  display: flex; gap: 16px; justify-content: space-between; flex-wrap: wrap;
+  max-width: var(--pb-maxw); margin: 0 auto;
+  padding: 14px var(--pb-pad-x);
   font-family: var(--pb-label);
   font-size: var(--pb-meta); color: var(--pb-dim);
 }

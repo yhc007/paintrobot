@@ -9,7 +9,7 @@ import AppsMenu from './components/AppsMenu';
 const TABS = [
   { to: '/today', label: '현황' },
   { to: '/live', label: '라인·정합' },
-  { to: '/coating', label: '도막·레시피' },
+  { to: '/coating', label: '레시피' },
   { to: '/range', label: '실적' },
 ];
 

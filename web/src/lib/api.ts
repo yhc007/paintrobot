@@ -114,6 +114,23 @@ export type MixFlow = {
   runs: ProductionRun[];
 };
 
+/// PLC가 보내온 차종 도장 레시피. 단계(level)마다 저장값(table)과
+/// 실제 적용값(applied)이 따로 온다.
+export type RecipeAxis = { table: number[]; applied: number[] };
+export type PlcRecipe = {
+  edge_id?: string | null;
+  model_no: number | null;
+  model_name?: string | null;
+  levels?: number | null;
+  received_at?: number | null;
+  work_date?: string | null;
+  recipe: {
+    atomization: RecipeAxis;
+    pattern: RecipeAxis;
+    flow: RecipeAxis;
+  } | null;
+};
+
 export const api = {
   today: () => getJson<DailyStats>('/api/v1/stats/today'),
   daily: (date: string) => getJson<DailyStats>(`/api/v1/stats/daily?date=${date}`),
@@ -125,6 +142,7 @@ export const api = {
     getJson<ReconcileEstimate>(`/api/v1/stats/reconcile?date=${date}`),
   weather: () => getJson<WeatherCurrent>('/api/v1/weather/current'),
   plcCurrent: () => getJson<PlcCurrent>('/api/v1/plc/current'),
+  recipeCurrent: () => getJson<PlcRecipe>('/api/v1/plc/recipe/current'),
   coatingsToday: () => getJson<CoatingsToday>('/api/v1/coatings/today'),
   coatingsRecent: (limit = 100) =>
     getJson<CoatingsToday>(`/api/v1/coatings/recent?limit=${limit}`),

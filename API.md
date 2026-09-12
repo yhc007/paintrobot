@@ -32,7 +32,6 @@
 | POST | `/api/v1/jobs/batch` | ✅ | 네트워크 복구 시 일괄 업로드 |
 | POST | `/api/v1/plc/recipe` | ✅ | **차종 도장 레시피 수신 (멱등 upsert)** |
 | GET  | `/api/v1/plc/recipe/current` | ❌ | 마지막으로 수신한 레시피 (날짜 무관, `?edge_id=` 필터) |
-| POST | `/api/v1/coatings` | ✅ | 도막 두께 → 권장 분사압력 계산·저장 |
 | GET  | `/api/v1/stats/today` | ❌ | 오늘 모델별 카운트 |
 | GET  | `/api/v1/stats/daily?date=` | ❌ | 특정일 통계 |
 | GET  | `/api/v1/stats/range?from=&to=&group_by=` | ❌ | 기간 통계 (`day`/`model`) |
@@ -42,8 +41,6 @@
 | POST | `/api/v1/jobs/reconcile?date=` | ✅ | 상관 결과를 `match_status`에 기록 (기본 dry-run) |
 | GET  | `/api/v1/jobs?from=&to=&model=&status=&page=` | ❌ | 작업 상세 목록 |
 | GET  | `/api/v1/jobs/export.csv?...` | ❌ | CSV 다운로드 |
-| GET  | `/api/v1/coatings/today` | ❌ | 오늘 도막 측정 시계열 |
-| GET  | `/api/v1/coatings/recent?limit=` | ❌ | 최근 N건 |
 | GET  | `/api/v1/weather/current` | ❌ | 현대정밀 위치 온/습도 (OWM) |
 | GET  | `/api/v1/stream/live` | ❌ | SSE 실시간 stats 스트림 |
 
@@ -179,72 +176,6 @@ on_camera("1")
 ```
 
 응답: `{"accepted":N, "duplicates":M, "rejected":[]}` — 중복은 자동 무시.
-
----
-
-## 3. POST `/api/v1/coatings` — 도막 두께 → 분사 압력 계산
-
-엣지가 도막 두께 측정값을 보내면, 서버가 OWM 온/습도와 결합해 권장 분사 압력을 계산·반환·저장합니다.
-
-### 요청 바디
-
-| 필드 | 타입 | 필수 | 설명 |
-|---|---|---|---|
-| `event_id`         | string | **필수** | 멱등 키 |
-| `model_no`         | string | **필수** | 측정 대상 모델 |
-| `measured_um`      | number | **필수** | 측정 두께 (μm) |
-| `current_pressure` | number | **필수** | 현재 분사 압력 (bar) |
-| `target_um`        | number | 선택 | 목표 두께. 생략 시 30μm |
-| `temperature_c`    | number | 선택 | 생략 시 OWM에서 자동 보충 |
-| `humidity_pct`     | number | 선택 | 생략 시 OWM에서 자동 보충 |
-| `job_event_id`     | string | 선택 | 연결할 작업의 `event_id` |
-| `edge_id`          | string | 선택 | |
-
-### 계산 공식
-
-```
-err              = clamp((target_um - measured_um) / target_um, -0.5, +0.5)
-control_factor   = 1 + 0.5 × err                 # 두께 미달 → 압력↑
-temperature_fac  = 1 - 0.01 × (T_°C  - 20)        # 따뜻할수록 압력↓
-humidity_factor  = 1 - 0.003 × (H_%  - 50)        # 습할수록 압력↓
-recommended      = clamp(current × 모든 factor 곱, 1.0 bar, 6.0 bar)
-```
-
-기준점: 20°C / 50%RH 가 중립 (모든 factor=1.0).
-
-### 응답
-
-```json
-{
-  "event_id": "co-...",
-  "model_no": "HD-A120",
-  "measured_um": 24.0,
-  "target_um": 30.0,
-  "current_pressure": 3.5,
-  "recommended_pressure": 4.24,
-  "thickness_error": 0.2,
-  "temperature_c": 16.35,
-  "humidity_pct": 29.0,
-  "factors": { "control": 1.1, "temperature": 1.0365, "humidity": 1.063 },
-  "measured_at": 1777078517503,
-  "work_date": "2026-04-25"
-}
-```
-
-### 예시
-
-```bash
-curl -X POST https://paint.coreon.build/api/v1/coatings \
-  -H 'content-type: application/json' \
-  -H 'x-edge-key: <YOUR_EDGE_KEY>' \
-  -d '{
-    "event_id":"co-2026-0001",
-    "model_no":"HD-A120",
-    "measured_um":24.0,
-    "target_um":30.0,
-    "current_pressure":3.5
-  }'
-```
 
 ---
 
@@ -445,75 +376,6 @@ work_date,event_id,edge_id,plc_model_no,camera_model_no,match_status,plc_ts,came
 2026-04-27,01HV...,edge-line-01,HD-A120,HD-A120,matched,1777075200000,1777075202000,0.97
 ```
 
-### `/api/v1/coatings/today`, `/api/v1/coatings/recent?limit=N`
-도막 측정 시계열. `series` 배열 + 평균값.
-
----
-
-## 5. GET `/api/v1/weather/current`
-
-현대정밀(`경남 창원시 의창구 반계로 3`, lat 35.2706 / lon 128.6311) 위치의 OWM 실시간 데이터.
-
-```json
-{
-  "location_name": "현대정밀",
-  "lat": 35.2706,
-  "lon": 128.6311,
-  "observed_at": "2026-04-27T10:00:00+09:00",
-  "temperature_c": 17.2,
-  "humidity_pct": 58.0,
-  "source": "owm"
-}
-```
-
-OWM 키 미설정 시 `source: "stub"` + 0.0 값으로 응답.
-
----
-
-## 6. GET `/api/v1/stream/live` — SSE 실시간 스트림
-
-브라우저(또는 EventSource 지원 클라이언트)가 구독하면 **2초마다** 오늘 stats를 푸시합니다. 1시간 후 자동 종료 → 클라이언트 자동 재연결.
-
-```
-event: stats
-data: {"work_date":"2026-04-27","total_jobs":9,...}
-
-event: stats
-data: {"work_date":"2026-04-27","total_jobs":10,...}
-```
-
-JS 예:
-
-```js
-const es = new EventSource('/api/v1/stream/live');
-es.addEventListener('stats', e => {
-  const stats = JSON.parse(e.data);
-  console.log(stats.total_jobs, stats.models);
-});
-```
-
----
-
-## 에러 코드
-
-| 코드 | 의미 | 재시도 |
-|---|---|---|
-| 200 | 성공 (`accepted`/`duplicates` 둘 다 정상) | — |
-| 400 | 페이로드 유효성 실패 (필드 누락, 잘못된 식별자 등) | ❌ 재시도 무의미 |
-| 401 | `X-Edge-Key` 누락/오류 | ❌ |
-| 404 | 잘못된 경로 | ❌ |
-| 502 | 백엔드(CoreDB/OWM) 오류 | ✅ 백오프 후 재시도 |
-| 503 | OWM 키 누락 | ⚠️ 키 설정 필요 |
-
-응답 본문 예 (실패):
-```json
-{ "error": "missing or invalid X-Edge-Key" }
-```
-
----
-
-## 운영 정보
-
 ### 시스템 stack
 - **WASM 런타임**: Wasmtime serve (`wasi:http/proxy`)
 - **빌드 타깃**: `wasm32-wasip2`
@@ -580,15 +442,6 @@ CREATE TABLE paintrobot.weather_snapshots (
   temperature_c DOUBLE, humidity_pct DOUBLE, source TEXT
 );
 
-CREATE TABLE paintrobot.coatings (
-  event_id TEXT PRIMARY KEY, job_event_id TEXT, model_no TEXT,
-  measured_um DOUBLE, target_um DOUBLE,
-  temperature_c DOUBLE, humidity_pct DOUBLE,
-  current_pressure DOUBLE, recommended_pressure DOUBLE,
-  thickness_error DOUBLE,
-  control_factor DOUBLE, temp_factor DOUBLE, humidity_factor DOUBLE,
-  measured_at BIGINT, work_date TEXT
-);
 ```
 
 집계는 서버에서 SELECT + 인메모리 그룹핑으로 계산 (UPDATE/counter 없음).

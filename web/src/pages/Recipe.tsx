@@ -30,7 +30,7 @@ function Cell({ table, applied }: { table?: number; applied?: number }) {
   );
 }
 
-export default function Coating() {
+export default function Recipe() {
   const q = useQuery<PlcRecipe>({
     queryKey: ['plc', 'recipe', 'current'],
     queryFn: api.recipeCurrent,

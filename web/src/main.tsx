@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import Today from './pages/Today';
 import Range from './pages/Range';
-import Coating from './pages/Coating';
+import Recipe from './pages/Recipe';
 import Live from './pages/Live';
 import './styles.css';
 
@@ -23,7 +23,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="today" element={<Today />} />
             <Route path="live" element={<Live />} />
             <Route path="range" element={<Range />} />
-            <Route path="coating" element={<Coating />} />
+            <Route path="recipe" element={<Recipe />} />
           </Route>
         </Routes>
       </BrowserRouter>

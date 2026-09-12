@@ -14,7 +14,6 @@
 //! in `cql`. Identifier inputs (model_no, edge_id, event_id) must pass
 //! `check_identifier` before embedding.
 
-mod coatings;
 mod cql;
 mod http;
 mod jobs;
@@ -23,7 +22,6 @@ mod recipes;
 mod rollup;
 mod weather;
 
-pub use coatings::CoatingRow;
 pub use cql::{check_identifier, fmt_double, quote_text};
 pub use http::{HttpTransport, TransportError};
 #[cfg(not(target_family = "wasm"))]

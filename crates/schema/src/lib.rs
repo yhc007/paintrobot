@@ -95,43 +95,6 @@ pub struct PlcCurrent {
 
 /// Edge-supplied coating-thickness measurement. The server computes the
 /// recommended spray pressure from this plus current temperature/humidity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoatingIn {
-    pub event_id: String,
-    pub model_no: String,
-    pub measured_um: f64,
-    /// If omitted, server falls back to a per-model default (or 30μm).
-    pub target_um: Option<f64>,
-    pub current_pressure: f64,
-    /// If omitted, server fetches the latest OWM reading.
-    pub temperature_c: Option<f64>,
-    pub humidity_pct: Option<f64>,
-    pub job_event_id: Option<String>,
-    pub edge_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CoatingOut {
-    pub event_id: String,
-    pub model_no: String,
-    pub measured_um: f64,
-    pub target_um: f64,
-    pub current_pressure: f64,
-    pub recommended_pressure: f64,
-    pub thickness_error: f64,
-    pub temperature_c: f64,
-    pub humidity_pct: f64,
-    pub factors: PressureFactors,
-    pub measured_at: i64,
-    pub work_date: String,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct PressureFactors {
-    pub control: f64,
-    pub temperature: f64,
-    pub humidity: f64,
-}
 
 /// One paint parameter's master (`table`) vs currently-applied (`applied`)
 /// values. Each vector holds `levels` entries; values are INT16-range integers

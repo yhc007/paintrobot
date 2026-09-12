@@ -12,11 +12,11 @@ use chrono::{Duration, NaiveDate, Utc};
 use http_body_util::BodyExt;
 use paintrobot_domain as domain;
 use paintrobot_repo_coredb::{
-    CoatingRow, CoreDbClient, JobRow, RecipeRow, RepoError, WasiTransport, WeatherRow,
+    CoreDbClient, JobRow, RecipeRow, RepoError, WasiTransport, WeatherRow,
 };
 use paintrobot_schema::{
-    CoatingIn, CoatingOut, DailyStats, IngestResponse, JobIn, PlcCurrent, PlcModelIn,
-    PressureFactors, RecipeIn, Rejected, WeatherCurrent,
+    DailyStats, IngestResponse, JobIn, PlcCurrent, PlcModelIn,
+    RecipeIn, Rejected, WeatherCurrent,
 };
 use paintrobot_weather_client::{OwmProvider, WeatherError, WeatherProvider};
 use wstd::http::{Body, Request, Response, StatusCode};
@@ -36,9 +36,6 @@ async fn main(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
         ("GET", "/api/v1/plc/current") => Ok(plc_current().await),
         ("POST", "/api/v1/plc/recipe") => Ok(ingest_recipe(req).await),
         ("GET", "/api/v1/plc/recipe/current") => Ok(recipe_current(&query).await),
-        ("POST", "/api/v1/coatings") => Ok(ingest_coating(req).await),
-        ("GET", "/api/v1/coatings/today") => Ok(coatings_today().await),
-        ("GET", "/api/v1/coatings/recent") => Ok(coatings_recent(&query).await),
         ("GET", "/api/v1/stats/today") => Ok(stats_today().await),
         ("GET", "/api/v1/stats/daily") => Ok(stats_daily(&query).await),
         ("GET", "/api/v1/stats/range") => Ok(stats_range(&query).await),
@@ -492,186 +489,6 @@ async fn recipe_current(query: &str) -> Response<Body> {
     }
 }
 
-// ── coatings ───────────────────────────────────────────────────────────────
-
-async fn ingest_coating(req: Request<Body>) -> Response<Body> {
-    if !check_edge_key(req.headers()) {
-        return json_error(StatusCode::UNAUTHORIZED, "missing or invalid X-Edge-Key");
-    }
-    let body = match read_body(req).await {
-        Ok(b) => b,
-        Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
-    };
-    let inp: CoatingIn = match serde_json::from_slice(&body) {
-        Ok(v) => v,
-        Err(e) => return json_error(StatusCode::BAD_REQUEST, &format!("invalid body: {e}")),
-    };
-
-    // Resolve temperature/humidity. Edge can supply, otherwise pull live OWM.
-    let (temperature_c, humidity_pct) = match (inp.temperature_c, inp.humidity_pct) {
-        (Some(t), Some(h)) => (t, h),
-        _ => match owm_now().await {
-            Ok((t, h)) => (
-                inp.temperature_c.unwrap_or(t),
-                inp.humidity_pct.unwrap_or(h),
-            ),
-            Err(_) => (
-                inp.temperature_c.unwrap_or(20.0),
-                inp.humidity_pct.unwrap_or(50.0),
-            ),
-        },
-    };
-
-    let target = inp.target_um.unwrap_or(domain::DEFAULT_TARGET_UM);
-    let calc = domain::recommend_pressure(
-        inp.measured_um,
-        target,
-        temperature_c,
-        humidity_pct,
-        inp.current_pressure,
-    );
-
-    let now = Utc::now();
-    let measured_at = now.timestamp_millis();
-    let work_date = now
-        .with_timezone(&config::kst())
-        .format("%Y-%m-%d")
-        .to_string();
-
-    let row = CoatingRow {
-        event_id: inp.event_id.clone(),
-        job_event_id: inp.job_event_id.clone(),
-        model_no: inp.model_no.clone(),
-        measured_um: inp.measured_um,
-        target_um: target,
-        temperature_c,
-        humidity_pct,
-        current_pressure: inp.current_pressure,
-        recommended_pressure: calc.recommended,
-        thickness_error: calc.thickness_error,
-        control_factor: calc.factors.control,
-        temp_factor: calc.factors.temperature,
-        humidity_factor: calc.factors.humidity,
-        measured_at,
-        work_date: work_date.clone(),
-    };
-
-    if let Err(e) = client().insert_coating(&row).await {
-        // The recommendation is still useful even if persistence failed; log via response.
-        let mut out = build_coating_out(&row);
-        let resp = serde_json::json!({
-            "coating": out_value(&mut out),
-            "stored": false,
-            "store_error": format!("{e}")
-        });
-        return json_response(StatusCode::OK, &resp);
-    }
-
-    json_response(StatusCode::OK, &build_coating_out(&row))
-}
-
-fn build_coating_out(row: &CoatingRow) -> CoatingOut {
-    CoatingOut {
-        event_id: row.event_id.clone(),
-        model_no: row.model_no.clone(),
-        measured_um: row.measured_um,
-        target_um: row.target_um,
-        current_pressure: row.current_pressure,
-        recommended_pressure: row.recommended_pressure,
-        thickness_error: row.thickness_error,
-        temperature_c: row.temperature_c,
-        humidity_pct: row.humidity_pct,
-        factors: PressureFactors {
-            control: row.control_factor,
-            temperature: row.temp_factor,
-            humidity: row.humidity_factor,
-        },
-        measured_at: row.measured_at,
-        work_date: row.work_date.clone(),
-    }
-}
-
-fn out_value(out: &mut CoatingOut) -> serde_json::Value {
-    serde_json::to_value(&*out).unwrap_or(serde_json::Value::Null)
-}
-
-async fn coatings_today() -> Response<Body> {
-    let today = Utc::now()
-        .with_timezone(&config::kst())
-        .format("%Y-%m-%d")
-        .to_string();
-    let rows = match client().scan_coatings_for_date(&today, 100_000).await {
-        Ok(r) => r,
-        Err(e) => return repo_error_response(&e),
-    };
-    coatings_response(rows, &today)
-}
-
-async fn coatings_recent(query: &str) -> Response<Body> {
-    let limit: usize = query_param(query, "limit")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(50)
-        .min(2000);
-    let today = Utc::now()
-        .with_timezone(&config::kst())
-        .format("%Y-%m-%d")
-        .to_string();
-    let mut rows = match client().scan_coatings_for_date(&today, 100_000).await {
-        Ok(r) => r,
-        Err(e) => return repo_error_response(&e),
-    };
-    rows.sort_by_key(|r| std::cmp::Reverse(r.measured_at));
-    rows.truncate(limit);
-    rows.reverse(); // ascending for charts
-    coatings_response(rows, &today)
-}
-
-fn coatings_response(rows: Vec<CoatingRow>, work_date: &str) -> Response<Body> {
-    let total = rows.len();
-    let avg_measured = if total > 0 {
-        rows.iter().map(|r| r.measured_um).sum::<f64>() / total as f64
-    } else {
-        0.0
-    };
-    let avg_recommended = if total > 0 {
-        rows.iter().map(|r| r.recommended_pressure).sum::<f64>() / total as f64
-    } else {
-        0.0
-    };
-    let series: Vec<serde_json::Value> = rows
-        .iter()
-        .map(|r| {
-            serde_json::json!({
-                "event_id": r.event_id,
-                "model_no": r.model_no,
-                "measured_um": r.measured_um,
-                "target_um": r.target_um,
-                "current_pressure": r.current_pressure,
-                "recommended_pressure": r.recommended_pressure,
-                "temperature_c": r.temperature_c,
-                "humidity_pct": r.humidity_pct,
-                "measured_at": r.measured_at,
-            })
-        })
-        .collect();
-    json_response(
-        StatusCode::OK,
-        &serde_json::json!({
-            "work_date": work_date,
-            "total": total,
-            "avg_measured_um": avg_measured,
-            "avg_recommended_pressure": avg_recommended,
-            "series": series,
-        }),
-    )
-}
-
-async fn owm_now() -> Result<(f64, f64), WeatherError> {
-    let key = config::owm_api_key().ok_or(WeatherError::MissingKey)?;
-    let provider = OwmProvider::new(key);
-    let w = provider.current(config::SITE_LAT, config::SITE_LON).await?;
-    Ok((w.temperature_c, w.humidity_pct))
-}
 
 async fn stats_today() -> Response<Body> {
     let today = Utc::now()

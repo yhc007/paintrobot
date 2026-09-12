@@ -50,26 +50,6 @@ export type LiveFrame = {
   current_plc: PlcCurrent;
 };
 
-export type CoatingSample = {
-  event_id: string;
-  model_no: string;
-  measured_um: number;
-  target_um: number;
-  current_pressure: number;
-  recommended_pressure: number;
-  temperature_c: number;
-  humidity_pct: number;
-  measured_at: number;
-};
-
-export type CoatingsToday = {
-  work_date: string;
-  total: number;
-  avg_measured_um: number;
-  avg_recommended_pressure: number;
-  series: CoatingSample[];
-};
-
 /// PLC↔카메라 지연 상관의 사후 추정치. DB의 match_status는 건드리지 않는다 —
 /// 어디까지나 관찰용이고, `offset_secs`가 null이면 추정 자체를 못 한 것이다.
 export type MatchBucket = {
@@ -143,29 +123,4 @@ export const api = {
   weather: () => getJson<WeatherCurrent>('/api/v1/weather/current'),
   plcCurrent: () => getJson<PlcCurrent>('/api/v1/plc/current'),
   recipeCurrent: () => getJson<PlcRecipe>('/api/v1/plc/recipe/current'),
-  coatingsToday: () => getJson<CoatingsToday>('/api/v1/coatings/today'),
-  coatingsRecent: (limit = 100) =>
-    getJson<CoatingsToday>(`/api/v1/coatings/recent?limit=${limit}`),
 };
-
-export async function postCoating(payload: {
-  event_id: string;
-  model_no: string;
-  measured_um: number;
-  target_um?: number;
-  current_pressure: number;
-  temperature_c?: number;
-  humidity_pct?: number;
-  edge_id?: string;
-}, edgeKey: string) {
-  const r = await fetch('/api/v1/coatings', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-edge-key': edgeKey,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!r.ok) throw new Error(`coatings: ${r.status} ${await r.text()}`);
-  return r.json() as Promise<unknown>;
-}

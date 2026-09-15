@@ -1,6 +1,9 @@
 /target/
 /web/node_modules/
 /web/dist/
+# dist.bak.*, dist.old.* 같은 수동 백업도 제외한다. 위 한 줄로는 안 걸려서
+# 실제로 커밋에 딸려 들어간 적이 있다.
+/web/dist.*/
 /web/**/*.tsbuildinfo
 /web/src/**/*.js
 /web/src/**/*.d.ts

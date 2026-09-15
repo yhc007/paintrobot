@@ -5,10 +5,10 @@ import { MODEL_NOS, defaultRecipe, fitAxis } from '../lib/recipeDefaults';
 import Blueprint from '../components/Blueprint';
 
 type AxisKey = 'atomization' | 'pattern' | 'flow';
-const AXES: { key: AxisKey; label: string; unit: string }[] = [
-  { key: 'atomization', label: '무화', unit: '%' },
-  { key: 'pattern', label: '패턴', unit: '%' },
-  { key: 'flow', label: '토출량', unit: '%' },
+const AXES: { key: AxisKey; label: string; en: string; unit: string }[] = [
+  { key: 'atomization', label: '무화', en: 'Atomization', unit: '%' },
+  { key: 'pattern', label: '패턴', en: 'Pattern', unit: '%' },
+  { key: 'flow', label: '토출량', en: 'Flow', unit: '%' },
 ];
 
 function fmtTime(ms?: number | null) {
@@ -195,6 +195,7 @@ export default function Recipe() {
                   {AXES.map(a => (
                     <th key={a.key} colSpan={2} style={{ textAlign: 'center' }}>
                       {a.label} · {a.unit}
+                      <span className="axis-en">{a.en}</span>
                     </th>
                   ))}
                 </tr>

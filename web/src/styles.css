@@ -573,6 +573,14 @@ main {
 .model-state.recv { color: var(--pb-ok); }
 .model-state.mock { color: var(--pb-warn); }
 
+/* 표 머리의 영문 병기. 한글 아래 한 줄로 내려 붙인다. */
+.axis-en {
+  display: block; margin-top: 1px;
+  font-family: var(--pb-body); font-weight: 400;
+  font-size: 0.82em; letter-spacing: 0.04em;
+  color: var(--pb-dim); text-transform: none;
+}
+
 .recipe-meta { display: flex; gap: var(--pb-gap); flex-wrap: wrap; margin-bottom: 8px; }
 .recipe-meta label, .recipe-save label {
   display: flex; align-items: center; gap: 6px;

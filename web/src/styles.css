@@ -704,7 +704,7 @@ td .model {
 }
 .cam-iframe { width: 100%; height: 100%; border: 0; display: block; }
 .cam-badge {
-  position: absolute; top: 10px; left: 10px; z-index: 2;
+  position: absolute; top: 10px; left: 10px; z-index: 3;
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 7px;
   background: rgba(29, 45, 61, 0.82);
@@ -721,7 +721,8 @@ td .model {
    실제 영상이 아니라는 걸 한눈에 알리는 게 목적이라, 대시보드 톤과
    어긋나는 방송 컬러바를 그대로 쓴다. */
 .testcard {
-  position: absolute; inset: 0;
+  /* iframe 위를 덮는다 (배지보다는 아래). */
+  position: absolute; inset: 0; z-index: 2;
   display: flex; flex-direction: column;
   background: #131313;
 }

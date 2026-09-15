@@ -123,4 +123,28 @@ export const api = {
   weather: () => getJson<WeatherCurrent>('/api/v1/weather/current'),
   plcCurrent: () => getJson<PlcCurrent>('/api/v1/plc/current'),
   recipeCurrent: () => getJson<PlcRecipe>('/api/v1/plc/recipe/current'),
+  recipeList: () => getJson<PlcRecipe[]>('/api/v1/plc/recipe/list'),
 };
+
+/// 레시피를 서버에 저장한다. 쓰기라 엣지 키가 필요하다.
+///
+/// 수신 엔드포인트를 그대로 쓴다 — 같은 (엣지, 모델)이면 덮어쓰므로, 나중에
+/// PLC가 실제 값을 보내오면 그쪽이 이긴다.
+export async function saveRecipe(
+  payload: {
+    edge_id: string;
+    model_no: number;
+    model_name: string;
+    levels: number;
+    recipe: NonNullable<PlcRecipe['recipe']>;
+  },
+  edgeKey: string,
+) {
+  const r = await fetch('/api/v1/plc/recipe', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-edge-key': edgeKey },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(`저장 실패: ${r.status} ${await r.text()}`);
+  return r.json() as Promise<unknown>;
+}

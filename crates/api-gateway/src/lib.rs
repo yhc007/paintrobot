@@ -68,6 +68,7 @@ async fn route(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> 
         ("GET", "/api/v1/plc/current") => Ok(plc_current().await),
         ("POST", "/api/v1/plc/recipe") => Ok(ingest_recipe(req).await),
         ("GET", "/api/v1/plc/recipe/current") => Ok(recipe_current(&query).await),
+        ("GET", "/api/v1/plc/recipe/list") => Ok(recipe_list().await),
         ("GET", "/api/v1/stats/today") => Ok(stats_today().await),
         ("GET", "/api/v1/stats/daily") => Ok(stats_daily(&query).await),
         ("GET", "/api/v1/stats/range") => Ok(stats_range(&query).await),
@@ -497,6 +498,46 @@ async fn ingest_recipe(req: Request<Body>) -> Response<Body> {
 }
 
 /// Most recent recipe posted today (optionally filtered by `?edge_id=`).
+/// 저장된 레시피 전부. 모델별로 최신 1건씩.
+///
+/// 화면이 8개 차종 목록을 만들 때 쓴다. 수신된 것과 아직 안 온 것을 구분해야
+/// 하므로, 서버는 있는 것만 돌려주고 빠진 모델은 화면이 기본값으로 채운다.
+async fn recipe_list() -> Response<Body> {
+    let rows = match client().scan_all_recipes(100_000).await {
+        Ok(r) => r,
+        Err(e) => return repo_error_response(&e),
+    };
+    // 같은 모델이 여러 건이면 최신만 남긴다.
+    use std::collections::BTreeMap;
+    let mut latest: BTreeMap<i64, &paintrobot_repo_coredb::RecipeRow> = BTreeMap::new();
+    for r in &rows {
+        latest
+            .entry(r.model_no)
+            .and_modify(|cur| {
+                if r.received_at > cur.received_at {
+                    *cur = r;
+                }
+            })
+            .or_insert(r);
+    }
+    let out: Vec<serde_json::Value> = latest
+        .values()
+        .map(|r| {
+            serde_json::json!({
+                "edge_id": r.edge_id,
+                "model_no": r.model_no,
+                "model_name": r.model_name,
+                "levels": r.levels,
+                "recipe": serde_json::from_str::<serde_json::Value>(&r.recipe_json)
+                    .unwrap_or(serde_json::Value::Null),
+                "received_at": r.received_at,
+                "work_date": r.work_date,
+            })
+        })
+        .collect();
+    json_response(StatusCode::OK, &out)
+}
+
 async fn recipe_current(query: &str) -> Response<Body> {
     let want_edge = query_param(query, "edge_id");
     // 날짜로 거르지 않는다. 레시피는 차종이 바뀔 때만 들어오므로, 당일분만

@@ -546,6 +546,60 @@ main {
 
 /* 표에서도 차트와 같은 색을 달아 둔다 — 색 대비가 약한 조합이 있어도
    숫자가 붙은 표가 항상 확인용으로 남는다. */
+/* ── 레시피 ─────────────────────────────────────────────────────── */
+.recipe-split {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr);
+  align-items: start;
+}
+.model-list { display: flex; flex-direction: column; }
+.model-row {
+  display: grid; grid-template-columns: 2.2em 1fr auto;
+  align-items: center; gap: 8px;
+  padding: 7px 8px; background: transparent; cursor: pointer;
+  border: 0; border-bottom: 1px solid var(--pb-divider-soft);
+  color: var(--pb-text); text-align: left; font-family: var(--pb-label);
+  font-size: var(--pb-meta);
+}
+.model-row:last-child { border-bottom: 0; }
+.model-row:hover { background: var(--pb-fill); }
+.model-row.on { background: var(--pb-fill-strong); box-shadow: inset 2px 0 0 var(--pb-ice); }
+.model-no {
+  font-family: var(--pb-display); font-weight: 600;
+  font-size: var(--pb-lab); color: var(--pb-soft);
+}
+.model-name { color: var(--pb-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.model-state { color: var(--pb-dim); font-size: 0.9em; white-space: nowrap; }
+.model-state.recv { color: var(--pb-ok); }
+
+.recipe-meta { display: flex; gap: var(--pb-gap); flex-wrap: wrap; margin-bottom: 8px; }
+.recipe-meta label, .recipe-save label {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-muted);
+}
+.recipe-meta input { width: 7em; }
+/* 표 안의 입력칸은 테두리를 지워 읽을 때는 표처럼, 누르면 입력칸처럼 보이게 */
+input.cell {
+  width: 4.5em; text-align: right; background: transparent;
+  border: 1px solid transparent; color: var(--pb-text);
+  font-family: var(--pb-display); font-variant-numeric: tabular-nums;
+  padding: 1px 4px;
+}
+input.cell:hover { border-color: var(--pb-divider-soft); }
+input.cell:focus { border-color: var(--pb-ice); outline: none; background: var(--pb-bg-deep); }
+input.cell.warn { color: var(--pb-warn); }
+
+.recipe-save {
+  display: flex; align-items: center; gap: var(--pb-gap); flex-wrap: wrap;
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--pb-divider-soft);
+  font-family: var(--pb-label); font-size: var(--pb-meta);
+}
+.recipe-save input[type=password] { width: 12em; }
+
+@media (max-width: 1100px) {
+  .recipe-split { grid-template-columns: 1fr; }
+}
+
 .model .swatch {
   display: inline-block; width: 10px; height: 10px;
   margin-right: 6px; vertical-align: baseline; flex: none;

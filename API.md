@@ -32,6 +32,7 @@
 | POST | `/api/v1/jobs/batch` | ✅ | 네트워크 복구 시 일괄 업로드 |
 | POST | `/api/v1/plc/recipe` | ✅ | **차종 도장 레시피 수신 (멱등 upsert)** |
 | GET  | `/api/v1/plc/recipe/current` | ❌ | 마지막으로 수신한 레시피 (날짜 무관, `?edge_id=` 필터) |
+| GET  | `/api/v1/plc/recipe/list` | ❌ | 저장된 레시피 전체 (모델별 최신 1건) |
 | GET  | `/api/v1/stats/today` | ❌ | 오늘 모델별 카운트 |
 | GET  | `/api/v1/stats/daily?date=` | ❌ | 특정일 통계 |
 | GET  | `/api/v1/stats/range?from=&to=&group_by=` | ❌ | 기간 통계 (`day`/`model`) |

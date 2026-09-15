@@ -31,7 +31,10 @@ export default function Recipe() {
     const byNo = new Map((q.data ?? []).map(r => [r.model_no, r]));
     return MODEL_NOS.map(no => {
       const hit = byNo.get(no);
-      return { no, received: !!hit, data: hit ?? defaultRecipe(no) };
+      // edge_id가 'mock'이면 화면 확인용으로 넣어둔 값이다. PLC 실수신분과
+      // 섞이면 어느 것이 설비 값인지 알 수 없으므로 배지를 달리한다.
+      const mock = hit?.edge_id === 'mock';
+      return { no, received: !!hit && !mock, mock, data: hit ?? defaultRecipe(no) };
     });
   }, [q.data]);
 
@@ -102,13 +105,14 @@ export default function Recipe() {
   };
 
   const received = models.filter(m => m.received).length;
+  const mockCount = models.filter(m => m.mock).length;
 
   return (
     <>
       <div className="page-head">
         <h1 className="page-title">차종 도장 레시피</h1>
         <span className="page-note">
-          {MODEL_NOS.length}종 중 {received}종 PLC 수신 · 나머지는 기본값
+          {MODEL_NOS.length}종 중 PLC 수신 {received}종 · Mock {mockCount}종
         </span>
       </div>
 
@@ -116,7 +120,10 @@ export default function Recipe() {
       {q.error && <p className="err">{String(q.error)}</p>}
 
       <section className="recipe-split">
-        <Blueprint title="차종" foot={<span>PLC 미수신 차종은 기본값을 보여줍니다</span>}>
+        <Blueprint
+          title="차종"
+          foot={<span>Mock은 화면 확인용 값이며 설비에서 온 것이 아닙니다</span>}
+        >
           <div className="model-list">
             {models.map(m => (
               <button
@@ -127,8 +134,12 @@ export default function Recipe() {
               >
                 <span className="model-no">{m.no}</span>
                 <span className="model-name">{m.data.model_name ?? '—'}</span>
-                <span className={`model-state${m.received ? ' recv' : ''}`}>
-                  {m.received ? fmtTime(m.data.received_at) ?? '수신' : '기본값'}
+                <span className={`model-state${m.received ? ' recv' : ''}${m.mock ? ' mock' : ''}`}>
+                  {m.received
+                    ? fmtTime(m.data.received_at) ?? '수신'
+                    : m.mock
+                      ? `Mock · ${fmtTime(m.data.received_at) ?? ''}`
+                      : '기본값'}
                 </span>
               </button>
             ))}
@@ -138,8 +149,8 @@ export default function Recipe() {
         <Blueprint
           title={`모델 ${current.no} · 레시피`}
           right={
-            <div className={`verdict ${current.received ? 'ok' : 'idle'}`}>
-              {current.received ? 'PLC 수신' : '기본값'}
+            <div className={`verdict ${current.received ? 'ok' : current.mock ? 'warn' : 'idle'}`}>
+              {current.received ? 'PLC 수신' : current.mock ? 'Mock 데이터' : '기본값'}
             </div>
           }
           foot={

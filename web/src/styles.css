@@ -571,6 +571,7 @@ main {
 .model-name { color: var(--pb-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .model-state { color: var(--pb-dim); font-size: 0.9em; white-space: nowrap; }
 .model-state.recv { color: var(--pb-ok); }
+.model-state.mock { color: var(--pb-warn); }
 
 .recipe-meta { display: flex; gap: var(--pb-gap); flex-wrap: wrap; margin-bottom: 8px; }
 .recipe-meta label, .recipe-save label {

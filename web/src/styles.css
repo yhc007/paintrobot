@@ -288,6 +288,7 @@ main {
 .verdict.warn { color: var(--pb-warn); }
 .verdict.bad { color: var(--pb-bad); }
 .verdict.idle { color: var(--pb-dim); }
+.verdict.info { color: var(--pb-ice); }
 
 /* ── 레이아웃 격자 ────────────────────────────────────────────── */
 .row-3 {
@@ -571,7 +572,7 @@ main {
 .model-name { color: var(--pb-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .model-state { color: var(--pb-dim); font-size: 0.9em; white-space: nowrap; }
 .model-state.recv { color: var(--pb-ok); }
-.model-state.mock { color: var(--pb-warn); }
+.model-state.manual { color: var(--pb-ice); }
 
 /* 표 머리의 영문 병기. 한글 아래 한 줄로 내려 붙인다. */
 .axis-en {

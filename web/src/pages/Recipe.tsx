@@ -11,6 +11,11 @@ import {
 import { MODEL_NOS, defaultRecipe, fitAxis } from '../lib/recipeDefaults';
 import { EVENT_LABELS, label as symLabel } from '../lib/robotLabels';
 import Blueprint from '../components/Blueprint';
+
+/// 사람이 화면에서 넣은 레시피의 출처 표시. 엣지가 쓰는 식별자(edge-line-01
+/// 등)와 겹치면 안 된다 — 겹치는 순간 설비값과 구분이 사라진다.
+const MANUAL_EDGE = 'manual';
+
 import RobotChain from '../components/RobotChain';
 import JigStrip from '../components/JigStrip';
 import { BitGroup, BitLegend } from '../components/Bits';
@@ -146,11 +151,14 @@ export default function Recipe() {
   const models = useMemo(() => {
     const byNo = new Map((q.data ?? []).map(r => [r.model_no, r]));
     return MODEL_NOS.map(no => {
-      // edge_id가 'mock'이면 화면 확인용으로 넣어둔 값이다. PLC 실수신분과
-      // 섞이면 어느 것이 설비 값인지 알 수 없으므로 배지를 달리한다.
+      // 출처를 셋으로 나눈다. 도장 파라미터라 "이 수치가 설비에서 온 것인가"가
+      // 실제로 쓰이는 구분이다 — 사람이 넣은 값에 PLC 배지를 달면 안 된다.
+      //   PLC 수신 : 엣지가 설비에서 읽어 보낸 값
+      //   수동 입력 : 사람이 화면에서 넣은 값
+      //   기본값   : 아직 아무것도 없어 화면이 채운 자리
       const hit = byNo.get(no);
-      const mock = hit?.edge_id === 'mock';
-      return { no, received: !!hit && !mock, mock, data: hit ?? defaultRecipe(no) };
+      const manual = hit?.edge_id === MANUAL_EDGE;
+      return { no, received: !!hit && !manual, manual, data: hit ?? defaultRecipe(no) };
     });
   }, [q.data]);
 
@@ -208,7 +216,9 @@ export default function Recipe() {
       localStorage.setItem('edgeKey', edgeKey);
       await saveRecipe(
         {
-          edge_id: current.data.edge_id ?? 'edge-line-01',
+          // 화면에서 저장한 값은 사람이 넣은 값이다. PLC 실수신분의 edge_id를
+          // 물려받으면 다음 조회에서 "PLC 수신"으로 보인다.
+          edge_id: MANUAL_EDGE,
           model_no: current.no,
           model_name: name.trim() || String(current.no),
           levels,
@@ -227,7 +237,7 @@ export default function Recipe() {
   };
 
   const received = models.filter(m => m.received).length;
-  const mockCount = models.filter(m => m.mock).length;
+  const manualCount = models.filter(m => m.manual).length;
   const evList = events.data?.events ?? [];
 
   return (
@@ -235,7 +245,7 @@ export default function Recipe() {
       <div className="page-head">
         <h1 className="page-title">차종 도장 레시피</h1>
         <span className="page-note">
-          {MODEL_NOS.length}종 중 PLC 수신 {received}종 · Mock {mockCount}종
+          {MODEL_NOS.length}종 중 PLC 수신 {received}종 · 수동 입력 {manualCount}종
           {linked && fresh && (
             <> · 로봇 {rc?.robot_model ?? 'MPX2600'} {fresh.text}</>
           )}
@@ -255,7 +265,7 @@ export default function Recipe() {
       <section className="recipe-split">
         <Blueprint
           title="차종"
-          foot={<span>Mock은 화면 확인용 값이며 설비에서 온 것이 아닙니다</span>}
+          foot={<span>수동 입력분은 설비에서 읽은 값이 아니라 화면에서 등록한 값입니다</span>}
         >
           <div className="model-list">
             {models.map(m => (
@@ -267,13 +277,13 @@ export default function Recipe() {
               >
                 <span className="model-no">{m.no}</span>
                 <span className="model-name">{m.data.model_name ?? '—'}</span>
-                <span className={`model-state${m.received ? ' recv' : ''}${m.mock ? ' mock' : ''}`}>
+                <span className={`model-state${m.received ? ' recv' : ''}${m.manual ? ' manual' : ''}`}>
                   {m.no === hmiModel
                     ? 'HMI 선택중'
                     : m.received
                       ? fmtDate(m.data.received_at) ?? '수신'
-                      : m.mock
-                        ? `Mock · ${fmtDate(m.data.received_at) ?? ''}`
+                      : m.manual
+                        ? `수동 · ${fmtDate(m.data.received_at) ?? ''}`
                         : '기본값'}
                 </span>
               </button>
@@ -305,8 +315,8 @@ export default function Recipe() {
           <Blueprint
             title={`모델 ${current.no} · 레시피`}
             right={
-              <div className={`verdict ${current.received ? 'ok' : current.mock ? 'warn' : 'idle'}`}>
-                {current.received ? 'PLC 수신' : current.mock ? 'Mock 데이터' : '기본값'}
+              <div className={`verdict ${current.received ? 'ok' : current.manual ? 'info' : 'idle'}`}>
+                {current.received ? 'PLC 수신' : current.manual ? '수동 입력' : '기본값'}
               </div>
             }
             foot={
@@ -408,8 +418,8 @@ export default function Recipe() {
               {msg && <span className={msg.kind === 'ok' ? 'ok' : 'err'}>{msg.text}</span>}
             </div>
             <p className="hint">
-              저장하면 PLC 수신과 같은 자리에 기록됩니다. 이후 PLC가 실제 값을 보내오면
-              그 값이 덮어씁니다.
+              저장하면 「수동 입력」으로 기록됩니다. 이후 PLC가 이 차종의 실제 값을
+              보내오면 그 값이 덮어쓰고 「PLC 수신」으로 바뀝니다.
             </p>
           </Blueprint>
 

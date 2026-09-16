@@ -101,6 +101,16 @@ function alertsFor(r?: RobotCurrent): Alert[] {
           : `${r.read_errors.join(' / ')} — 해당 구간 비트는 "모름"으로 표시됩니다.`,
     });
   }
+  if (d.jig_words_all_zero) {
+    out.push({
+      tone: 'warn',
+      title: 'JIG 워드 전 구간 0',
+      body:
+        'JIG 시프트 레지스터(%DW7000·%DW7500 블록)가 설정값까지 전부 0입니다. ' +
+        '체터링 방지거리·JOB 시작 임계값은 워크 유무와 무관한 설정값이라 0일 수 없습니다. ' +
+        '라인이 비어서가 아니라 주소가 현재 래더와 어긋났을 수 있어, JIG 칸을 상태로 읽지 마세요.',
+    });
+  }
   if (d.model_no_out_of_range) {
     out.push({
       tone: 'warn',
@@ -421,6 +431,7 @@ export default function Recipe() {
                 stations={rc?.jig?.stations ?? []}
                 activeJig={rc?.derived?.active_jig ?? null}
                 hmiModel={hmiModel}
+                suspect={rc?.derived?.jig_words_all_zero}
               />
             </Blueprint>
 

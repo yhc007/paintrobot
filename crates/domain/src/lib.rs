@@ -2,7 +2,8 @@
 
 mod robot;
 pub use robot::{
-    active_faults, active_station, detect_events, io_disagreements, is_degraded, work_id_mismatch,
+    active_faults, active_station, detect_events, io_disagreements, is_degraded,
+    jig_words_all_zero, work_id_mismatch,
     RobotEvent, RobotEventKind, FAULT_GROUPS, IO_DISAGREE_STREAK, IO_PAIRS,
 };
 

@@ -8,7 +8,13 @@ import { state } from './Bits';
 // HMI 차종번호는 "지금 작업자가 고른 것"일 뿐이고, 이쪽이 "실제로 그 자리에
 // 있는 것"이다. 둘을 나란히 두는 게 이 화면의 요점이다.
 
-type Props = { stations: JigStation[]; activeJig: number | null; hmiModel: number | null };
+type Props = {
+  stations: JigStation[];
+  activeJig: number | null;
+  hmiModel: number | null;
+  /// %DW 블록이 전부 0이면 칸 상태를 사실로 그리지 않는다.
+  suspect?: boolean;
+};
 
 /// 이 칸이 지금 무엇을 하고 있는가. 비트 순서가 곧 진행 순서다.
 function phase(s: JigStation): { text: string; cls: string } {
@@ -20,8 +26,24 @@ function phase(s: JigStation): { text: string; cls: string } {
   return { text: '비어 있음', cls: 'empty' };
 }
 
-export default function JigStrip({ stations, activeJig, hmiModel }: Props) {
+export default function JigStrip({ stations, activeJig, hmiModel, suspect }: Props) {
   if (!stations.length) return <p className="hint">JIG 수신 없음</p>;
+  // 설정값까지 0으로 내려오는 동안에는 "비어 있음"이라고 말하지 않는다.
+  // 그건 라인 상태가 아니라 읽기 결과에 대한 진술이 되어버린다.
+  if (suspect) {
+    return (
+      <div className="jig-strip">
+        {stations.map(s => (
+          <div key={s.no} className="jig-cell unknown">
+            <div className="jig-no">JIG {s.no}</div>
+            <div className="jig-work">?</div>
+            <div className="jig-phase">확인 필요</div>
+            <div className="jig-dist">0 / 0</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="jig-strip">
       {stations.map(s => {

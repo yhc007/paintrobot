@@ -1759,6 +1759,9 @@ async fn robot_current(query: &str) -> Response<Body> {
                 "io_streak": row.io_streak,
                 "faults": domain::active_faults(&snap),
                 "model_no_out_of_range": snap.model_no_out_of_range(),
+                // %DW 블록이 설정값까지 전부 0이면 "라인이 비었다"가 아니다.
+                // 화면이 JIG를 "비어 있음"으로 단정하지 않게 짚어준다.
+                "jig_words_all_zero": domain::jig_words_all_zero(&snap),
             },
         }),
     )

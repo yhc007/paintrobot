@@ -183,6 +183,38 @@ pub fn is_degraded(snap: &RobotIn) -> bool {
     !snap.read_errors.is_empty()
 }
 
+/// `%DW` 블록에서 나온 워드가 하나도 빠짐없이 0인가.
+///
+/// 라인이 비어 있으면 `work_id`/`work_in`은 당연히 0이다. 그런데 같은 블록에는
+/// **워크 유무와 무관한 설정값**도 들어 있다 — 체터링 방지거리(`%DW7010`),
+/// 로봇 기동 신호 거리(`%DW7020`/`%DW7025`), 칸마다의 JOB 시작 임계값
+/// (`%DW7105+10n`). 이것들까지 0이면 "라인이 비었다"로 설명되지 않는다.
+/// 체터링 방지거리 0은 성립하는 설비 설정이 아니다.
+///
+/// 실제로 현장에서 그 상태가 나왔다. M 영역에서 온 비트는
+/// `work_in_not_on`/`robot_job_start`가 true인데 D 워드는 전 구간 0이었고,
+/// 같은 시각 라인은 생산 중이었다. 주소가 현재 래더와 어긋난 것으로 보인다.
+///
+/// 이 경우 화면이 JIG를 "비어 있음"으로 단정하면 거짓을 사실처럼 그리게 된다.
+/// 그래서 따로 짚어내 "확인 필요"로 표시한다.
+pub fn jig_words_all_zero(snap: &RobotIn) -> bool {
+    let j = &snap.jig;
+    let mut vals: Vec<Option<i64>> = vec![
+        j.shift_distance,
+        j.chattering_guard,
+        j.start_sig_start_dist,
+        j.start_sig_end_dist,
+        j.completed.work_id,
+        j.completed.work_in,
+    ];
+    for st in &j.stations {
+        vals.extend([st.work_id, st.work_in, st.shift_dist, st.job_start_dist]);
+    }
+    // 하나도 읽히지 않았으면(전부 None) 판정하지 않는다 — 그건 읽기 실패이지
+    // "전부 0"이 아니다.
+    vals.iter().any(|v| v.is_some()) && vals.iter().flatten().all(|v| *v == 0)
+}
+
 /// 직전 스냅샷과 비교해 파생 이벤트를 뽑는다 (스펙 §4.3).
 ///
 /// `prev`가 없으면(첫 수신) 전이는 만들지 않는다 — 기준이 없는데 전이를
@@ -527,6 +559,44 @@ mod tests {
         let mut alarmed = snap(Some(8));
         alarmed.robot.alarm.insert("panel_estop".into(), Some(true));
         assert_eq!(active_faults(&alarmed), vec!["alarm.panel_estop"]);
+    }
+
+    #[test]
+    fn all_zero_jig_words_are_flagged() {
+        // 라인이 비어도 설정값은 살아 있다 — 이건 정상이라 짚지 않는다.
+        let mut normal = snap(Some(8));
+        normal.jig.chattering_guard = Some(30);
+        normal.jig.start_sig_start_dist = Some(150);
+        for st in normal.jig.stations.iter_mut() {
+            st.job_start_dist = Some(150);
+        }
+        assert!(!jig_words_all_zero(&normal));
+
+        // 설정값까지 전부 0이면 라인이 비어서가 아니다.
+        let mut zeroed = snap(Some(8));
+        zeroed.jig.shift_distance = Some(0);
+        zeroed.jig.chattering_guard = Some(0);
+        zeroed.jig.start_sig_start_dist = Some(0);
+        zeroed.jig.start_sig_end_dist = Some(0);
+        for st in zeroed.jig.stations.iter_mut() {
+            st.job_start_dist = Some(0);
+        }
+        assert!(jig_words_all_zero(&zeroed));
+
+        // 전부 못 읽은 것은 "전부 0"과 다르다.
+        let mut unread = snap(Some(8));
+        unread.jig.shift_distance = None;
+        unread.jig.chattering_guard = None;
+        unread.jig.start_sig_start_dist = None;
+        unread.jig.start_sig_end_dist = None;
+        unread.jig.completed = JigCompleted { work_id: None, work_in: None };
+        for st in unread.jig.stations.iter_mut() {
+            st.work_id = None;
+            st.work_in = None;
+            st.shift_dist = None;
+            st.job_start_dist = None;
+        }
+        assert!(!jig_words_all_zero(&unread));
     }
 
     #[test]

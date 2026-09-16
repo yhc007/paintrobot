@@ -167,6 +167,9 @@ export type RobotCurrent = {
     io_streak: number;
     faults: string[];
     model_no_out_of_range: boolean;
+    /// %DW 블록이 설정값까지 전부 0. 라인이 비어서가 아니라 주소가 어긋난
+    /// 것일 수 있으므로, 화면은 JIG를 "비어 있음"으로 단정하면 안 된다.
+    jig_words_all_zero: boolean;
   };
 };
 

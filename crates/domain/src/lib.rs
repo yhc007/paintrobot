@@ -1,5 +1,11 @@
 //! Pure logic: determine match_status, derive work_date, aggregate.
 
+mod robot;
+pub use robot::{
+    active_faults, active_station, detect_events, io_disagreements, is_degraded, work_id_mismatch,
+    RobotEvent, RobotEventKind, FAULT_GROUPS, IO_DISAGREE_STREAK, IO_PAIRS,
+};
+
 use chrono::{DateTime, FixedOffset, TimeZone};
 use paintrobot_schema::{DailyStats, JobIn, MatchStatus, ModelCount};
 use std::collections::BTreeMap;

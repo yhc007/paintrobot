@@ -842,3 +842,199 @@ footer {
 @media (prefers-reduced-motion: reduce) {
   .live-dot, .cam-dot { animation: none; }
 }
+
+/* ── R1 로봇 인터페이스 ──────────────────────────────────────────────
+   `plc_r.md`가 다루는 것은 도장 수치가 아니라 핸드셰이크다. 그래서 여기
+   시각 언어는 "값의 크기"가 아니라 "상태의 종류" — 채움/비움/모름이다. */
+
+/* 경고 띠. 있을 때만 그린다 — 늘 떠 있는 "이상 없음" 배너는 읽히지 않는다. */
+.alert-band {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 7px 10px; border: 1px solid; border-left-width: 3px;
+  font-family: var(--pb-label); font-size: var(--pb-meta);
+}
+.alert-band strong {
+  font-family: var(--pb-display); font-size: var(--pb-lab);
+  letter-spacing: 0.04em; white-space: nowrap;
+}
+.alert-band.bad  { border-color: var(--pb-bad);  color: var(--pb-bad);
+                   background: rgba(217, 97, 76, 0.10); }
+.alert-band.warn { border-color: var(--pb-warn); color: var(--pb-warn);
+                   background: rgba(232, 163, 61, 0.09); }
+.alert-band span { color: var(--pb-soft); }
+
+/* 오른쪽 기둥. 체인 → 레시피 → JIG·이벤트 → 비트 순으로 쌓인다.
+   요약이 위, 상세가 아래 (§0의 갈래를 그대로 따라 내려간다). */
+.recipe-stack { display: grid; gap: var(--pb-gap); align-content: start; }
+.robot-row {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+}
+@media (max-width: 1400px) { .robot-row { grid-template-columns: 1fr; } }
+
+/* 지금 HMI가 고른 차종은 목록에서도 짚어준다 — .on 뒤에 와야 이긴다 */
+.model-row.hmi .model-state { color: var(--pb-ice); }
+.model-row.hmi .model-no { color: var(--pb-ice); }
+
+/* ── 지령 체인 ───────────────────────────────────────────────────── */
+.chain { display: grid; gap: 8px; }
+.chain-node {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 5px 9px; border: 1px solid var(--pb-divider-soft);
+  background: var(--pb-fill);
+}
+.chain-label {
+  font-family: var(--pb-label); font-size: var(--pb-meta);
+  color: var(--pb-muted); white-space: nowrap;
+}
+.chain-value {
+  margin-left: auto; font-family: var(--pb-display);
+  font-size: var(--pb-lab); font-variant-numeric: tabular-nums;
+  color: var(--pb-soft);
+}
+.chain-node.live { border-color: var(--pb-ice); }
+.chain-node.live .chain-value { color: var(--pb-ice); }
+.chain-node.bad { border-color: var(--pb-bad); background: rgba(217, 97, 76, 0.10); }
+.chain-node.bad .chain-value { color: var(--pb-bad); }
+.chain-node.idle .chain-value { color: var(--pb-dim); }
+
+/* 갈래 표시 — 한 값이 둘로 나뉜다는 것을 선으로 말한다 */
+.chain-fork {
+  height: 12px; margin: 0 auto; width: 60%;
+  border-left: 1px solid var(--pb-divider);
+  border-right: 1px solid var(--pb-divider);
+  border-bottom: 1px solid var(--pb-divider);
+}
+.chain-arms {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+@media (max-width: 900px) { .chain-arms { grid-template-columns: 1fr; } }
+.chain-arm { display: grid; gap: 6px; align-content: start; }
+.chain-arm-tag {
+  font-family: var(--pb-label); font-size: var(--pb-meta);
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--pb-dim);
+}
+.chain-note {
+  margin: 0; max-width: 46ch; line-height: 1.5;
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-dim);
+}
+
+/* ── JIG 5단 ─────────────────────────────────────────────────────── */
+.jig-strip {
+  display: grid; gap: 4px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+@media (max-width: 700px) { .jig-strip { grid-template-columns: repeat(2, 1fr); } }
+.jig-cell {
+  display: grid; gap: 2px; padding: 7px 8px;
+  border: 1px solid var(--pb-divider-soft); background: var(--pb-fill);
+  font-family: var(--pb-label); font-size: var(--pb-meta);
+}
+.jig-no { color: var(--pb-muted); letter-spacing: 0.06em; }
+.jig-work {
+  font-family: var(--pb-display); font-size: var(--pb-big);
+  line-height: 1.05; font-variant-numeric: tabular-nums; color: var(--pb-soft);
+}
+.jig-phase { color: var(--pb-dim); }
+.jig-dist {
+  color: var(--pb-dim); font-variant-numeric: tabular-nums;
+  font-size: 0.92em; opacity: 0.75;
+}
+.jig-cell.empty { border-style: dashed; background: transparent; }
+.jig-cell.empty .jig-work { color: var(--pb-dim); opacity: 0.5; }
+.jig-cell.unknown { border-style: dashed; border-color: var(--pb-warn); }
+.jig-cell.unknown .jig-phase { color: var(--pb-warn); }
+.jig-cell.busy { border-color: var(--pb-ice); background: var(--pb-fill-strong); }
+.jig-cell.busy .jig-work, .jig-cell.busy .jig-phase { color: var(--pb-ice); }
+.jig-cell.done .jig-phase { color: var(--pb-ok); }
+.jig-cell.active { box-shadow: inset 0 2px 0 var(--pb-ice); }
+/* 실린 차체가 HMI 차종과 다른 칸. 위험 표시가 다른 상태색을 이겨야 한다. */
+.jig-cell.bad { border-color: var(--pb-bad); background: rgba(217, 97, 76, 0.12); }
+.jig-cell.bad .jig-work { color: var(--pb-bad); }
+
+/* ── 비트 ────────────────────────────────────────────────────────────
+   ON / OFF / 모름 세 상태. `모름`은 읽기 실패라 OFF와 같이 그리면 안 된다 —
+   비상정지가 모름인데 OFF로 보이면 "안전함"으로 읽힌다. */
+.bit-groups {
+  display: grid; gap: var(--pb-gap);
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+.bit-group { display: grid; gap: 5px; align-content: start; }
+.bit-group-head {
+  display: flex; align-items: baseline; gap: 6px;
+  padding-bottom: 3px; border-bottom: 1px solid var(--pb-divider-soft);
+  font-family: var(--pb-label); font-size: var(--pb-meta);
+  letter-spacing: 0.06em; color: var(--pb-muted);
+}
+.bit-group-count {
+  margin-left: auto; font-family: var(--pb-display);
+  color: var(--pb-dim); font-variant-numeric: tabular-nums;
+}
+.bit-grid { display: grid; gap: 1px; }
+.bit {
+  display: grid; grid-template-columns: 9px 1fr auto;
+  align-items: center; gap: 6px;
+  padding: 2px 0; font-family: var(--pb-label); font-size: var(--pb-meta);
+}
+.bit-dot {
+  width: 9px; height: 9px; flex: none;
+  border: 1px solid var(--pb-dim); background: transparent;
+}
+.bit-name { color: var(--pb-muted); min-width: 0;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bit-val { font-family: var(--pb-display); color: var(--pb-dim);
+           font-variant-numeric: tabular-nums; }
+.bit.on .bit-dot { background: var(--pb-ok); border-color: var(--pb-ok); }
+.bit.on .bit-name { color: var(--pb-soft); }
+.bit.on .bit-val { color: var(--pb-ok); }
+.bit.off .bit-dot { border-color: var(--pb-divider); }
+.bit.off .bit-name, .bit.off .bit-val { opacity: 0.6; }
+/* 모름 — 빗금으로 "값이 없다"를 색이 아닌 무늬로도 말한다 */
+.bit.unknown .bit-dot {
+  border-style: dashed; border-color: var(--pb-warn);
+  background: repeating-linear-gradient(
+    45deg, var(--pb-warn) 0 1px, transparent 1px 3px);
+}
+.bit.unknown .bit-name { color: var(--pb-warn); }
+.bit.unknown .bit-val { color: var(--pb-warn); }
+
+.bit-legend {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  font-family: var(--pb-label); font-size: var(--pb-meta); color: var(--pb-dim);
+}
+.bit-legend .bit {
+  display: inline-flex; grid-template-columns: none; gap: 4px; padding: 0;
+}
+
+/* ── 이벤트 목록 ─────────────────────────────────────────────────── */
+.ev-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: 1px; max-height: 17rem; overflow-y: auto;
+}
+.ev-list li {
+  display: grid; grid-template-columns: 4.6em 7.5em 1fr;
+  align-items: baseline; gap: 8px; padding: 2px 0;
+  font-family: var(--pb-label); font-size: var(--pb-meta);
+  border-bottom: 1px solid var(--pb-divider-soft);
+}
+.ev-time { font-family: var(--pb-display); color: var(--pb-dim);
+           font-variant-numeric: tabular-nums; }
+.ev-kind { color: var(--pb-muted); white-space: nowrap; }
+.ev-detail { color: var(--pb-soft); min-width: 0; }
+.ev-list li.alert .ev-kind, .ev-list li.alert .ev-detail { color: var(--pb-bad); }
+.ev-list li.alert { box-shadow: inset 2px 0 0 var(--pb-bad); padding-left: 6px; }
+
+@media (max-width: 700px) {
+  .ev-list li { grid-template-columns: 4.6em 1fr; }
+  .ev-list li .ev-detail { grid-column: 1 / -1; }
+}
+
+/* ON이지만 그게 이상인지 정상인지 아직 모르는 접점. 빨강도 초록도 아닌
+   중립으로 두고 물음표를 단다 — 색으로 단정하면 오경보가 된다. */
+.bit.on.fault .bit-dot { background: var(--pb-bad); border-color: var(--pb-bad); }
+.bit.on.fault .bit-val, .bit.on.fault .bit-name { color: var(--pb-bad); }
+.bit.on.unconfirmed .bit-dot { background: var(--pb-steel); border-color: var(--pb-ice); }
+.bit.on.unconfirmed .bit-val, .bit.on.unconfirmed .bit-name { color: var(--pb-muted); }
+.bit.on.unconfirmed .bit-val sup { color: var(--pb-warn); margin-left: 1px; }

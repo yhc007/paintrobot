@@ -111,6 +111,81 @@ export type PlcRecipe = {
   } | null;
 };
 
+/// R1 로봇(MPX2600) 인터페이스. 스펙은 저장소 루트의 `plc_r.md`.
+///
+/// **비트는 true/false/null 3-state다.** null은 "해당 워드 블록 읽기 실패 =
+/// 값 모름"이지 false가 아니다. 비상정지 비트가 null인데 false로 접히면
+/// 화면이 "안전함"으로 읽힌다. 그래서 `boolean | null`을 끝까지 유지한다.
+export type Bit = boolean | null;
+export type BitMap = Record<string, Bit>;
+
+export type JigStation = {
+  no: number;
+  /// 이 JIG에 실린 차체의 차종번호. 컨베이어를 따라 차체와 같이 움직인다.
+  work_id: number | null;
+  /// 0 = 워크 없음
+  work_in: number | null;
+  shift_dist: number | null;
+  job_start_dist: number | null;
+  send_to_robot: Bit;
+  job_start: Bit;
+  send_done: Bit;
+};
+
+export type RobotCurrent = {
+  edge_id: string | null;
+  robot_model?: string | null;
+  /// HMI 차종번호 %DW5000
+  model_no?: number | null;
+  received_at: number | null;
+  degraded?: boolean;
+  read_errors?: string[];
+  robot?: {
+    command: BitMap;
+    state: BitMap;
+    alarm: BitMap;
+    do: BitMap;
+    di: BitMap;
+  };
+  jig?: {
+    shift_distance: number | null;
+    chattering_guard: number | null;
+    start_sig_start_dist: number | null;
+    start_sig_end_dist: number | null;
+    common: BitMap;
+    stations: JigStation[];
+    completed: { work_id: number | null; work_in: number | null };
+  };
+  /// 서버가 미리 판정해 둔 값. 화면이 같은 계산을 다시 하지 않도록.
+  derived?: {
+    active_jig: number | null;
+    active_work_id: number | null;
+    /// true=오도장 위험, false=일치, **null=판정 불가**(정상이 아니다).
+    work_id_mismatch: boolean | null;
+    /// 내부 릴레이와 출력 접점이 어긋난 키
+    io_disagree: string[];
+    io_streak: number;
+    faults: string[];
+    model_no_out_of_range: boolean;
+  };
+};
+
+export type RobotEvent = {
+  kind: string;
+  ts_ms: number;
+  jig_no: number | null;
+  model_no: number | null;
+  detail: string;
+  alert: boolean;
+};
+
+export type RobotEventDay = {
+  work_date: string;
+  events: RobotEvent[];
+  /// 종류별 누계. `events`는 최근 것만 남기므로 건수는 여기서 본다.
+  counts: Record<string, number>;
+};
+
 export const api = {
   today: () => getJson<DailyStats>('/api/v1/stats/today'),
   daily: (date: string) => getJson<DailyStats>(`/api/v1/stats/daily?date=${date}`),
@@ -124,6 +199,9 @@ export const api = {
   plcCurrent: () => getJson<PlcCurrent>('/api/v1/plc/current'),
   recipeCurrent: () => getJson<PlcRecipe>('/api/v1/plc/recipe/current'),
   recipeList: () => getJson<PlcRecipe[]>('/api/v1/plc/recipe/list'),
+  robotCurrent: () => getJson<RobotCurrent>('/api/v1/plc/robot/current'),
+  robotEvents: (date?: string) =>
+    getJson<RobotEventDay>(`/api/v1/plc/robot/events${date ? `?date=${date}` : ''}`),
 };
 
 /// 레시피를 서버에 저장한다. 쓰기라 엣지 키가 필요하다.

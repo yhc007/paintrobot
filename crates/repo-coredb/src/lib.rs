@@ -19,6 +19,7 @@ mod http;
 mod jobs;
 mod plc_state;
 mod recipes;
+mod robot;
 mod rollup;
 mod weather;
 
@@ -31,6 +32,7 @@ pub use http::WasiTransport;
 pub use jobs::JobRow;
 pub use plc_state::PlcStateRow;
 pub use recipes::RecipeRow;
+pub use robot::{RobotDayRow, RobotStateRow, MAX_DAY_EVENTS};
 pub use rollup::RollupRow;
 pub use weather::WeatherRow;
 

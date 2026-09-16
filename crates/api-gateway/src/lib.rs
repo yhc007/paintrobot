@@ -2,6 +2,7 @@
 //!
 //! Implemented routes:
 //!   POST /api/v1/jobs            — ingest one matched job from the edge
+//!   POST /api/v1/plc/robot       — R1 로봇 인터페이스 상태 스냅샷 (plc_r.md)
 //!   GET  /api/v1/stats/today     — today's per-model counts (aggregated from CoreDB)
 //!   GET  /api/v1/weather/current — current °C / %RH at 현대정밀 (stub until weather-client wired)
 //!   GET  /healthz                — liveness
@@ -12,11 +13,12 @@ use chrono::{Duration, NaiveDate, Utc};
 use http_body_util::BodyExt;
 use paintrobot_domain as domain;
 use paintrobot_repo_coredb::{
-    CoreDbClient, JobRow, RecipeRow, RepoError, WasiTransport, WeatherRow,
+    CoreDbClient, JobRow, RecipeRow, RepoError, RobotDayRow, RobotStateRow, WasiTransport,
+    WeatherRow, MAX_DAY_EVENTS,
 };
 use paintrobot_schema::{
     DailyStats, IngestResponse, JobIn, PlcCurrent, PlcModelIn,
-    RecipeIn, Rejected, WeatherCurrent,
+    RecipeIn, Rejected, RobotIn, WeatherCurrent,
 };
 use paintrobot_weather_client::{OwmProvider, WeatherError, WeatherProvider};
 use wstd::http::{Body, Request, Response, StatusCode};
@@ -69,6 +71,9 @@ async fn route(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> 
         ("POST", "/api/v1/plc/recipe") => Ok(ingest_recipe(req).await),
         ("GET", "/api/v1/plc/recipe/current") => Ok(recipe_current(&query).await),
         ("GET", "/api/v1/plc/recipe/list") => Ok(recipe_list().await),
+        ("POST", "/api/v1/plc/robot") => Ok(ingest_robot(req).await),
+        ("GET", "/api/v1/plc/robot/current") => Ok(robot_current(&query).await),
+        ("GET", "/api/v1/plc/robot/events") => Ok(robot_events(&query).await),
         ("GET", "/api/v1/stats/today") => Ok(stats_today().await),
         ("GET", "/api/v1/stats/daily") => Ok(stats_daily(&query).await),
         ("GET", "/api/v1/stats/range") => Ok(stats_range(&query).await),
@@ -1546,6 +1551,241 @@ fn url_decode(s: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+// ── R1 로봇 인터페이스 ───────────────────────────────────────────────────────
+//
+// 스펙: `plc_r.md`. PLC는 도장 파라미터를 로봇에 넘기지 않는다 — D/A로 건을
+// 직접 물리고, 로봇에는 WORK ID와 기동 비트만 접점으로 간다. 그래서 여기 오는
+// 것은 도장 수치가 아니라 핸드셰이크와 추적 데이터다.
+
+/// `POST /api/v1/plc/robot` — 엣지 리더의 상태 스냅샷 수신.
+///
+/// 저장 모양이 스펙 §4.1과 다르다. 이유는 `repo-coredb/src/robot.rs` 머리말에
+/// 적었다 — 요약하면 CoreDB에 DELETE가 없어 롤오프를 못 하므로, 스냅샷은
+/// 엣지당 한 행을 덮어쓰고 파생 이벤트만 날짜별로 쌓는다.
+async fn ingest_robot(req: Request<Body>) -> Response<Body> {
+    if !check_edge_key(req.headers()) {
+        return json_error(StatusCode::UNAUTHORIZED, "invalid edge key");
+    }
+    let body = match read_body(req).await {
+        Ok(b) => b,
+        Err(e) => return json_error(StatusCode::BAD_REQUEST, &e),
+    };
+    // serde가 3-state를 그대로 지킨다. 비트 자리에 문자열 "true"가 오면
+    // 여기서 걸린다 (§4.2).
+    let inp: RobotIn = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => return json_error(StatusCode::BAD_REQUEST, &format!("invalid body: {e}")),
+    };
+    if let Err(e) = inp.validate() {
+        return json_error(StatusCode::BAD_REQUEST, &e);
+    }
+
+    let now = Utc::now();
+    let received_at = now.timestamp_millis();
+    let work_date = now
+        .with_timezone(&config::kst())
+        .format("%Y-%m-%d")
+        .to_string();
+
+    let db = client();
+    let prev_row = db.get_robot_state(&inp.edge_id).await.ok().flatten();
+    let prev: Option<RobotIn> = prev_row
+        .as_ref()
+        .and_then(|r| serde_json::from_str(&r.snapshot_json).ok());
+    let io_streak = prev_row.as_ref().map(|r| r.io_streak).unwrap_or(0).max(0) as u32;
+
+    let (events, next_streak) = domain::detect_events(prev.as_ref(), &inp, received_at, io_streak);
+
+    let snapshot_json = match serde_json::to_string(&inp) {
+        Ok(s) => s,
+        Err(e) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("serialize snapshot: {e}"),
+            )
+        }
+    };
+    let state = RobotStateRow {
+        edge_id: inp.edge_id.clone(),
+        robot_model: inp.robot_model.clone(),
+        model_no: inp.model_no,
+        snapshot_json,
+        read_errors: serde_json::to_string(&inp.read_errors).unwrap_or_else(|_| "[]".into()),
+        degraded: i64::from(domain::is_degraded(&inp)),
+        io_streak: i64::from(next_streak),
+        received_at,
+    };
+    if let Err(e) = db.upsert_robot_state(&state).await {
+        return repo_error_response(&e);
+    }
+
+    let appended = append_robot_events(&work_date, &events, received_at).await;
+
+    json_response(
+        StatusCode::OK,
+        &serde_json::json!({
+            "result": "ok",
+            "events": appended,
+            "degraded": domain::is_degraded(&inp),
+            // 1~8 밖이어도 저장한다. 거절하지 않고 경고만 세운다 (§4.2).
+            "model_no_out_of_range": inp.model_no_out_of_range(),
+        }),
+    )
+}
+
+/// 그날 행에 이벤트를 붙인다. 읽고-고쳐-쓰기라 왕복이 두 번이지만, 이벤트는
+/// 희소해서(1사이클에 몇 건) 폴링마다 일어나지 않는다.
+async fn append_robot_events(
+    work_date: &str,
+    events: &[domain::RobotEvent],
+    now_ms: i64,
+) -> usize {
+    if events.is_empty() {
+        return 0;
+    }
+    let db = client();
+    let mut payload = db
+        .get_robot_day(work_date)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| serde_json::from_str::<serde_json::Value>(&r.payload).ok())
+        .unwrap_or_else(|| serde_json::json!({ "events": [], "counts": {} }));
+
+    let mut list = payload
+        .get("events")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut counts = payload
+        .get("counts")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default();
+
+    for e in events {
+        let key = e.kind.as_str();
+        let n = counts.get(key).and_then(|v| v.as_u64()).unwrap_or(0) + 1;
+        counts.insert(key.to_string(), serde_json::json!(n));
+        list.push(serde_json::json!({
+            "kind": key,
+            "ts_ms": e.ts_ms,
+            "jig_no": e.jig_no,
+            "model_no": e.model_no,
+            "detail": e.detail,
+            "alert": e.kind.is_alert(),
+        }));
+    }
+    // 한 행이 CQL 문자열 하나로 나가므로 무한정 키우지 않는다. 누계는
+    // `counts`에 남으니 오래된 건을 버려도 건수는 잃지 않는다.
+    if list.len() > MAX_DAY_EVENTS {
+        list.drain(..list.len() - MAX_DAY_EVENTS);
+    }
+    payload = serde_json::json!({ "events": list, "counts": counts });
+
+    let row = RobotDayRow {
+        work_date: work_date.to_string(),
+        payload: payload.to_string(),
+        updated_at: now_ms,
+    };
+    match db.upsert_robot_day(&row).await {
+        Ok(()) => events.len(),
+        Err(_) => 0,
+    }
+}
+
+/// `GET /api/v1/plc/robot/current` — 화면이 읽는 현재 상태.
+///
+/// 원본 비트를 그대로 내보내고, 화면이 매번 다시 계산하지 않도록 판정 결과를
+/// `derived`에 같이 담는다. 판정 로직은 도메인에 한 벌만 둔다.
+async fn robot_current(query: &str) -> Response<Body> {
+    let want_edge = query_param(query, "edge_id");
+    let db = client();
+    let row = match &want_edge {
+        Some(e) => match db.get_robot_state(e).await {
+            Ok(r) => r,
+            Err(err) => return repo_error_response(&err),
+        },
+        None => match db.scan_robot_states(64).await {
+            // received_at이 0인 행은 실제로 수신한 적이 없는 자리다. 최신으로
+            // 골라 버리면 화면이 빈 스냅샷을 현재 상태로 그린다.
+            Ok(rows) => rows
+                .into_iter()
+                .filter(|r| r.received_at > 0)
+                .max_by_key(|r| r.received_at),
+            Err(err) => return repo_error_response(&err),
+        },
+    };
+
+    // 아직 한 번도 안 들어왔으면 404가 아니라 빈 상태를 돌려준다. 화면이
+    // "아직 수신 없음"을 그릴 수 있어야 한다.
+    let Some(row) = row else {
+        return json_response(
+            StatusCode::OK,
+            &serde_json::json!({ "edge_id": serde_json::Value::Null, "received_at": serde_json::Value::Null }),
+        );
+    };
+    let snap: RobotIn = match serde_json::from_str(&row.snapshot_json) {
+        Ok(v) => v,
+        Err(e) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("stored snapshot is unreadable: {e}"),
+            )
+        }
+    };
+
+    let active = domain::active_station(&snap);
+    json_response(
+        StatusCode::OK,
+        &serde_json::json!({
+            "edge_id": row.edge_id,
+            "robot_model": row.robot_model,
+            "model_no": snap.model_no,
+            "received_at": row.received_at,
+            "degraded": row.degraded != 0,
+            "read_errors": snap.read_errors,
+            "robot": snap.robot,
+            "jig": snap.jig,
+            "derived": {
+                "active_jig": active.map(|s| s.no),
+                "active_work_id": active.and_then(|s| s.work_id),
+                // true/false/null 셋 다 의미가 다르다. null은 "판정 불가"이지
+                // "정상"이 아니다 — 화면에서도 갈라 보여야 한다.
+                "work_id_mismatch": domain::work_id_mismatch(&snap),
+                "io_disagree": domain::io_disagreements(&snap),
+                "io_streak": row.io_streak,
+                "faults": domain::active_faults(&snap),
+                "model_no_out_of_range": snap.model_no_out_of_range(),
+            },
+        }),
+    )
+}
+
+/// `GET /api/v1/plc/robot/events?date=YYYY-MM-DD` — 그날의 파생 이벤트.
+async fn robot_events(query: &str) -> Response<Body> {
+    let date = query_param(query, "date").unwrap_or_else(|| {
+        Utc::now()
+            .with_timezone(&config::kst())
+            .format("%Y-%m-%d")
+            .to_string()
+    });
+    let payload = match client().get_robot_day(&date).await {
+        Ok(Some(r)) => serde_json::from_str::<serde_json::Value>(&r.payload)
+            .unwrap_or_else(|_| serde_json::json!({ "events": [], "counts": {} })),
+        Ok(None) => serde_json::json!({ "events": [], "counts": {} }),
+        Err(e) => return repo_error_response(&e),
+    };
+    json_response(
+        StatusCode::OK,
+        &serde_json::json!({
+            "work_date": date,
+            "events": payload.get("events").cloned().unwrap_or_else(|| serde_json::json!([])),
+            "counts": payload.get("counts").cloned().unwrap_or_else(|| serde_json::json!({})),
+        }),
+    )
 }
 
 async fn weather_current() -> Response<Body> {

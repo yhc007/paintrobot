@@ -5,9 +5,11 @@ import { MODEL_NOS, defaultRecipe, fitAxis } from '../lib/recipeDefaults';
 import Blueprint from '../components/Blueprint';
 
 type AxisKey = 'atomization' | 'pattern' | 'flow';
+// 회전식 벨(rotary bell) 방식이라 벤더 자료의 용어를 그대로 쓴다.
+// 무화는 벨컵 회전수, 패턴은 형상 공기로 제어된다.
 const AXES: { key: AxisKey; label: string; en: string; unit: string }[] = [
-  { key: 'atomization', label: '무화', en: 'Atomization', unit: '%' },
-  { key: 'pattern', label: '패턴', en: 'Pattern', unit: '%' },
+  { key: 'atomization', label: '무화', en: 'Bell Speed', unit: '%' },
+  { key: 'pattern', label: '패턴', en: 'Shaping Air', unit: '%' },
   { key: 'flow', label: '토출량', en: 'Flow', unit: '%' },
 ];
 

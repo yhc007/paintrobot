@@ -5,12 +5,13 @@ import { MODEL_NOS, defaultRecipe, fitAxis } from '../lib/recipeDefaults';
 import Blueprint from '../components/Blueprint';
 
 type AxisKey = 'atomization' | 'pattern' | 'flow';
-// 회전식 벨(rotary bell) 방식이라 벤더 자료의 용어를 그대로 쓴다.
-// 무화는 벨컵 회전수, 패턴은 형상 공기로 제어된다.
+// 에어 스프레이 건 기준 용어. 리코일 스프링은 코일 형상이라 코일 사이가 깊고
+// 그늘져, 넓고 부드럽게 뿌리는 회전식 벨보다 방향성 있는 건이 맞는다.
+// 레시피에 전압(kV) 항목이 없는 것도 정전 벨이 아님을 뒷받침한다.
 const AXES: { key: AxisKey; label: string; en: string; unit: string }[] = [
-  { key: 'atomization', label: '무화', en: 'Bell Speed', unit: '%' },
-  { key: 'pattern', label: '패턴', en: 'Shaping Air', unit: '%' },
-  { key: 'flow', label: '토출량', en: 'Flow', unit: '%' },
+  { key: 'atomization', label: '무화', en: 'Atomizing Air', unit: '%' },
+  { key: 'pattern', label: '패턴', en: 'Fan Air', unit: '%' },
+  { key: 'flow', label: '토출량', en: 'Fluid Flow', unit: '%' },
 ];
 
 function fmtTime(ms?: number | null) {
